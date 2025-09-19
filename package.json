@@ -1,0 +1,109 @@
+{
+  "name": "etiketleme-sistemi-v2",
+  "version": "2.0.1",
+  "description": "Etiketleme sistemi Electron uygulaması",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "concurrently \"npm run build:watch\" \"wait-on dist/main.js && electron .\"",
+    "build": "tsc && npm run copy-assets",
+    "build:watch": "tsc --watch",
+    "copy-assets": "cp -r dashboard dist/ && cp -r labeling-app dist/ && cp -r backend dist/",
+    "pack": "electron-builder",
+    "dist": "npm run build && electron-builder",
+    "build:exe": "node build-exe.js",
+    "build:dmg": "node build-dmg.js",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^8.7.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "node": "^18.19.0",
+    "sharp": "^0.34.3",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.5",
+    "@types/multer": "^1.4.11",
+    "@types/node": "^20.10.0",
+    "concurrently": "^8.2.2",
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3",
+    "nodemon": "^3.0.1",
+    "typescript": "^5.3.0",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.etiketleme.sistemi",
+    "productName": "Etiketleme Sistemi",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "**/*",
+      "!node_modules/.cache",
+      "!dist-electron",
+      "!.git",
+      "!.gitignore",
+      "!README.md",
+      "!*.log",
+      "main.js"
+    ],
+    "extraResources": [
+      {
+        "from": "backend",
+        "to": "backend"
+      },
+      {
+        "from": "backend/node_modules",
+        "to": "backend/node_modules"
+      },
+      {
+        "from": "dashboard",
+        "to": "dashboard"
+      },
+      {
+        "from": "labeling-app",
+        "to": "labeling-app"
+      },
+      {
+        "from": "start-backend-manual.sh",
+        "to": "start-backend-manual.sh"
+      },
+      {
+        "from": "start-backend.bat",
+        "to": "start-backend.bat"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": "dmg",
+      "extraResources": [
+        {
+          "from": "node_modules/node/bin/node",
+          "to": "node"
+        }
+      ]
+    },
+    "win": {
+      "target": "nsis",
+      "extraResources": [
+        {
+          "from": "node_modules/node/bin/node.exe",
+          "to": "node.exe"
+        }
+      ]
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}

@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Etiketleme Sistemi - Dashboard</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <!-- Main Dashboard -->
+    <div id="dashboard" class="dashboard">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <i class="fas fa-tags"></i>
+                    <span class="logo-text">Kontrol Paneli</span>
+                </div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <div class="nav-item active" data-tab="projects">
+                    <i class="fas fa-folder"></i>
+                    <span class="nav-text">Projeler</span>
+                </div>
+                <div class="nav-item" data-tab="analytics">
+                    <i class="fas fa-chart-pie"></i>
+                    <span class="nav-text">Etiket Analizi</span>
+                </div>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <div class="user-avatar">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <div class="user-details">
+                        <span class="username">Admin</span>
+                        <span class="user-role">Yönetici</span>
+                    </div>
+                </div>
+                <button id="serverConnectBtn" class="server-connect-btn" title="Server Bağlantısı">
+                    <i class="fas fa-network-wired"></i>
+                </button>
+                <button id="logoutBtn" class="logout-btn">
+                    <i class="fas fa-sign-out-alt"></i>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="main-header">
+                <div class="header-left">
+                    <h1 id="pageTitle">Proje Yönetimi</h1>
+                    <p id="pageSubtitle">Projelerinizi yönetin ve etiket analizlerini görüntüleyin</p>
+                </div>
+                <div class="header-actions">
+                    <div id="connectionStatus" class="connection-status">
+                        <i class="fas fa-circle"></i>
+                        <span>Bağlantı Kuruluyor...</span>
+                    </div>
+                    <button id="startServerBtn" class="btn btn-primary" style="display: none;">
+                        <i class="fas fa-play"></i>
+                        <span>Server Başlat</span>
+                    </button>
+                    <button id="openLabelingAppBtn" class="btn btn-primary">
+                        <i class="fas fa-tags"></i>
+                        <span>Etiketleme Uygulaması</span>
+                    </button>
+                    <button id="refreshBtn" class="btn btn-ghost">
+                        <i class="fas fa-sync-alt"></i>
+                        <span>Yenile</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Content Area -->
+            <div class="content-area">
+                <!-- Projects Tab -->
+                <div id="projectsTab" class="tab-content active">
+                    <div class="projects-grid">
+                        <div class="projects-header">
+                            <h2>Projelerim</h2>
+                            <button id="addProjectBtn" class="btn btn-primary">
+                                <i class="fas fa-plus"></i>
+                                <span>Yeni Proje</span>
+                            </button>
+                        </div>
+                        
+                        <div id="projectsSummaryList" class="projects-list">
+                            <!-- Projeler buraya yüklenecek -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Analytics Tab -->
+                <div id="analyticsTab" class="tab-content">
+                    <div class="analytics-grid">
+                        <div class="analytics-header">
+                            <h2>Proje Bazlı Etiket Analizi</h2>
+                            <div class="project-selector">
+                                <label for="projectSelect">Proje Seçin:</label>
+                                <select id="projectSelect" class="form-input">
+                                    <option value="">Tüm Projeler</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="analytics-content">
+                            <div class="chart-section">
+                                <div class="chart-header">
+                                    <h3 id="chartTitle">Etiket Dağılımı</h3>
+                                </div>
+                                <div class="chart-layout">
+                                    <div class="chart-container">
+                                        <canvas id="labelChart"></canvas>
+                                    </div>
+                                    <div id="projectStats" class="label-list">
+                                        <!-- Etiket listesi buraya yüklenecek -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Server Start Modal -->
+    <div id="serverStartModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Server Başlat</h3>
+                <button class="modal-close" id="closeServerModal">&times;</button>
+            </div>
+            <div class="server-start-content">
+                <div class="server-status">
+                    <div class="status-item">
+                        <i class="fas fa-server"></i>
+                        <span>Server Durumu: <span id="serverStatusText">Kontrol ediliyor...</span></span>
+                    </div>
+                    <div class="status-item">
+                        <i class="fas fa-database"></i>
+                        <span>Database: <span id="databaseStatusText">Kontrol ediliyor...</span></span>
+                    </div>
+                    <div class="status-item">
+                        <i class="fas fa-network-wired"></i>
+                        <span>Port 3000: <span id="portStatusText">Kontrol ediliyor...</span></span>
+                    </div>
+                </div>
+                
+                <div id="serverStartActions" class="server-actions" style="display: none;">
+                    <div class="server-info">
+                        <h4>Server Başlatma Seçenekleri</h4>
+                        <p>Etiketleme Sistemi server'ını başlatmak için aşağıdaki seçeneklerden birini kullanın:</p>
+                    </div>
+                    
+                    <div class="start-options">
+                        <button id="startServerAuto" class="btn btn-primary btn-large">
+                            <i class="fas fa-play"></i>
+                            <span>Otomatik Başlat</span>
+                            <small>Server'ı otomatik olarak başlat ve dashboard'ı yenile</small>
+                        </button>
+                        
+                        <button id="startServerManual" class="btn btn-secondary btn-large">
+                            <i class="fas fa-terminal"></i>
+                            <span>Manuel Başlat</span>
+                            <small>Terminal'de server'ı manuel olarak başlat</small>
+                        </button>
+                        
+                        <button id="openLabelingApp" class="btn btn-ghost btn-large">
+                            <i class="fas fa-tags"></i>
+                            <span>Etiketleme Uygulaması</span>
+                            <small>Server olmadan etiketleme uygulamasını aç</small>
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="serverStartProgress" class="server-progress" style="display: none;">
+                    <div class="progress-spinner">
+                        <i class="fas fa-spinner fa-spin"></i>
+                    </div>
+                    <p>Server başlatılıyor, lütfen bekleyin...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Project Modal -->
+    <div id="addProjectModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Yeni Proje Oluştur</h3>
+                <button class="modal-close" id="closeProjectModal">&times;</button>
+            </div>
+            <form id="addProjectForm">
+                <div class="form-group">
+                    <label for="projectName">Proje Adı</label>
+                    <input type="text" id="projectName" class="form-input" required>
+                </div>
+                <div class="form-group">
+                    <label for="projectDescription">Açıklama</label>
+                    <textarea id="projectDescription" class="form-input" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="projectFolderPath">Resim Klasörü Seçin</label>
+                    <div class="folder-input-container" id="folderDropZone">
+                        <input type="file" id="projectFolderPath" class="form-input folder-input" webkitdirectory directory multiple required>
+                        <div class="folder-input-display">
+                            <i class="fas fa-folder-open"></i>
+                            <span class="folder-text">Klasör seçmek için tıklayın veya sürükleyin</span>
+                        </div>
+                    </div>
+                    <div id="selectedFolderInfo" class="folder-info" style="display: none;">
+                        <i class="fas fa-check-circle"></i>
+                        <span id="selectedFolderPath"></span>
+                    </div>
+                    <div class="form-group" style="margin-top: 1rem;">
+                        <label for="projectFolderPathText">Veya Klasör Yolunu Manuel Girin</label>
+                        <input type="text" id="projectFolderPathText" class="form-input" placeholder="Örnek: /Users/kullanici/Desktop/denemefoto">
+                        <small class="form-help">Klasör seçtiğinizde otomatik olarak tam yol oluşturulur</small>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" id="cancelAddProject">İptal</button>
+                    <button type="submit" class="btn btn-primary">
+                        <span id="addProjectLoading" style="display: none;">⏳</span>
+                        <span id="addProjectText">Oluştur</span>
+                    </button>
+                </div>
+                <div id="addProjectError" class="error-message"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Server Connection Modal -->
+    <div id="serverModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-network-wired"></i> Server Bağlantısı</h3>
+                <button class="close-btn" id="closeServerModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="connection-mode">
+                    <h4>Bağlantı Modu Seçin:</h4>
+                    <div class="mode-options">
+                        <label class="mode-option">
+                            <input type="radio" name="connectionMode" value="local" checked>
+                            <span class="mode-text">
+                                <i class="fas fa-desktop"></i>
+                                <strong>Yerel Server</strong>
+                                <small>Bu bilgisayarda server çalıştır</small>
+                            </span>
+                        </label>
+                        <label class="mode-option">
+                            <input type="radio" name="connectionMode" value="remote">
+                            <span class="mode-text">
+                                <i class="fas fa-globe"></i>
+                                <strong>Uzak Server</strong>
+                                <small>Başka bilgisayardaki servera bağlan</small>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div id="localServerSection" class="server-section">
+                    <h4>Yerel Server Durumu:</h4>
+                    <div class="server-status">
+                        <span id="localServerStatus" class="status-indicator">
+                            <i class="fas fa-circle"></i>
+                            Kontrol ediliyor...
+                        </span>
+                    </div>
+                    <button id="startLocalServerBtn" class="btn btn-primary" style="display: none;">
+                        <i class="fas fa-play"></i> Server Başlat
+                    </button>
+                </div>
+                
+                <div id="remoteServerSection" class="server-section" style="display: none;">
+                    <h4>Uzak Server Bağlantısı:</h4>
+                    <div class="form-group">
+                        <label for="serverIP">Server IP Adresi:</label>
+                        <input type="text" id="serverIP" placeholder="192.168.1.100" value="192.168.1.100">
+                    </div>
+                    <div class="form-group">
+                        <label for="serverPort">Port:</label>
+                        <input type="number" id="serverPort" placeholder="3000" value="3000">
+                    </div>
+                    <button id="connectRemoteServerBtn" class="btn btn-primary">
+                        <i class="fas fa-link"></i> Bağlan
+                    </button>
+                    <div class="discovered-servers">
+                        <h5>Bulunan Serverlar:</h5>
+                        <div id="discoveredServersList" class="servers-list">
+                            <div class="loading">Aranıyor...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/simple-dashboard.js"></script>
+</body>
+</html>

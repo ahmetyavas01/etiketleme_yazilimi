@@ -1,0 +1,3332 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <title>Manuel Etiketleme Yazılımı</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-primary: #0f0f0f;
+            --bg-secondary: #1a1a1a;
+            --bg-tertiary: #262626;
+            --bg-hover: #333333;
+            --bg-active: #404040;
+            --text-primary: #ffffff;
+            --text-secondary: #a3a3a3;
+            --text-muted: #737373;
+            --border-primary: #404040;
+            --border-secondary: #262626;
+            --accent-primary: #3b82f6;
+            --accent-hover: #2563eb;
+            --accent-success: #10b981;
+            --accent-warning: #f59e0b;
+            --accent-error: #ef4444;
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            --radius-sm: 6px;
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            --spacing-xs: 4px;
+            --spacing-sm: 8px;
+            --spacing-md: 16px;
+            --spacing-lg: 24px;
+            --spacing-xl: 32px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            font-size: 14px;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        .main-application {
+            display: flex;
+            height: 100vh;
+        }
+
+        .sidebar-container {
+            width: 280px;
+            min-width: 280px;
+            background: var(--bg-secondary);
+            height: 100vh;
+            position: relative;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 10;
+            border-right: 1px solid var(--border-secondary);
+        }
+        .sidebar {
+            padding: var(--spacing-lg);
+            height: 100%;
+            overflow: auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border-primary) transparent;
+        }
+        .sidebar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .sidebar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .sidebar::-webkit-scrollbar-thumb {
+            background: var(--border-primary);
+            border-radius: 3px;
+        }
+        .sidebar-container.collapsed {
+            transform: translateX(-100%);
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: var(--spacing-lg);
+            background: var(--bg-primary);
+            min-height: calc(100vh - 40px); /* Viewport yüksekliğinin neredeyse tamamı */
+            width: 100%;
+        }
+
+        .canvas-container {
+            flex: 1;
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-lg);
+            position: relative;
+            overflow: hidden;
+            background-color: var(--bg-tertiary);
+            box-shadow: var(--shadow-lg);
+            min-height: 600px; /* Minimum yükseklik */
+            width: 100%;
+            max-width: none; /* Maksimum genişlik kaldırıldı */
+        }
+
+        canvas {
+            display: block;
+            cursor: crosshair;
+            width: 100% !important;
+            height: 100% !important;
+            min-height: 600px;
+            outline: none;
+        }
+
+        /* Full-Screen Crosshair Cursor */
+        .crosshair-cursor {
+            cursor: none !important;
+        }
+
+        .fullscreen-crosshair {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 15;
+            display: none;
+        }
+
+        .crosshair-line {
+            position: absolute;
+            background: rgba(128, 128, 128, 0.8);
+            pointer-events: none;
+        }
+
+        .crosshair-vertical {
+            width: 1px;
+            height: 100%;
+            left: 0;
+            top: 0;
+        }
+
+        .crosshair-horizontal {
+            width: 100%;
+            height: 1px;
+            left: 0;
+            top: 0;
+        }
+
+        .crosshair-center {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            border: 1px solid rgba(128, 128, 128, 0.8);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            background: transparent;
+        }
+
+        .coordinates-display {
+            position: absolute;
+            top: var(--spacing-md);
+            left: var(--spacing-md);
+            background: rgba(0, 0, 0, 0.8);
+            color: var(--text-primary);
+            padding: var(--spacing-xs) var(--spacing-sm);
+            border-radius: var(--radius-sm);
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+            font-weight: 500;
+            border: 1px solid var(--border-primary);
+            backdrop-filter: blur(4px);
+            z-index: 100;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+        }
+
+        .coordinates-display.hidden {
+            opacity: 0;
+        }
+
+        .coordinates-display .coord-label {
+            color: var(--text-muted);
+            margin-right: var(--spacing-xs);
+        }
+
+        .coordinates-display .coord-value {
+            color: var(--accent-primary);
+            font-weight: 600;
+        }
+
+        /* Grid Lines for Precision */
+        .grid-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .grid-lines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(to right, rgba(59, 130, 246, 0.1) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(59, 130, 246, 0.1) 1px, transparent 1px);
+            background-size: 20px 20px;
+            opacity: 0.6;
+        }
+
+        .grid-lines.major {
+            background-image: 
+                linear-gradient(to right, rgba(59, 130, 246, 0.2) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(59, 130, 246, 0.2) 1px, transparent 1px);
+            background-size: 100px 100px;
+        }
+
+        .grid-lines.minor {
+            background-image: 
+                linear-gradient(to right, rgba(59, 130, 246, 0.05) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(59, 130, 246, 0.05) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        /* Polygon Point Indicators */
+        .polygon-point {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background: var(--accent-primary);
+            border: 3px solid white;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 20;
+            pointer-events: none;
+            box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
+            transition: all 0.2s ease;
+        }
+
+        .polygon-point.active {
+            background: var(--accent-error);
+            width: 16px;
+            height: 16px;
+            border-width: 4px;
+            animation: pulse 1.5s infinite;
+        }
+
+        .polygon-point.hover {
+            background: var(--accent-warning);
+            width: 18px;
+            height: 18px;
+            border-width: 4px;
+        }
+
+        .polygon-point.completed {
+            background: var(--accent-success);
+            width: 14px;
+            height: 14px;
+        }
+
+        @keyframes pulse {
+            0% { transform: translate(-50%, -50%) scale(1); }
+            50% { transform: translate(-50%, -50%) scale(1.2); }
+            100% { transform: translate(-50%, -50%) scale(1); }
+        }
+
+        /* Polygon Connection Lines */
+        .polygon-line {
+            position: absolute;
+            background: var(--accent-primary);
+            height: 2px;
+            z-index: 15;
+            pointer-events: none;
+            opacity: 0.7;
+        }
+
+        .polygon-line.active {
+            background: var(--accent-error);
+            opacity: 1;
+            height: 3px;
+        }
+
+        .polygon-points-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        /* Polygon Status Indicator */
+        .polygon-status {
+            position: absolute;
+            top: var(--spacing-md);
+            right: var(--spacing-md);
+            background: rgba(0, 0, 0, 0.8);
+            color: var(--text-primary);
+            padding: var(--spacing-sm) var(--spacing-md);
+            border-radius: var(--radius-md);
+            font-size: 12px;
+            font-weight: 500;
+            border: 1px solid var(--border-primary);
+            backdrop-filter: blur(4px);
+            z-index: 100;
+            display: none;
+        }
+
+        .polygon-status.active {
+            display: block;
+        }
+
+        .polygon-status .status-text {
+            color: var(--accent-primary);
+        }
+
+        .polygon-status .instruction {
+            color: var(--text-secondary);
+            font-size: 11px;
+            margin-top: 2px;
+        }
+
+        .section {
+            margin-bottom: var(--spacing-xl);
+        }
+
+        .section-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: var(--spacing-md);
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+        }
+
+        .stats-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--spacing-sm);
+            margin-bottom: var(--spacing-md);
+        }
+
+        .stat-item {
+            background: var(--bg-tertiary);
+            padding: var(--spacing-sm);
+            border-radius: var(--radius-sm);
+            text-align: center;
+            border: 1px solid var(--border-primary);
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--accent-primary);
+            line-height: 1;
+        }
+
+        .stat-label {
+            font-size: 10px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 2px;
+        }
+
+        .label-counts {
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-primary);
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .label-count-item {
+            padding: var(--spacing-xs) var(--spacing-sm);
+            border-bottom: 1px solid var(--border-secondary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+        }
+
+        .label-count-item:last-child {
+            border-bottom: none;
+        }
+
+        .label-count-name {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .label-count-value {
+            font-weight: 600;
+            color: var(--accent-primary);
+        }
+
+        .btn {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-primary);
+            padding: var(--spacing-sm) var(--spacing-md);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            width: 100%;
+            min-height: 36px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--spacing-sm);
+            margin-bottom: var(--spacing-sm);
+        }
+
+
+        .btn.active {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+            color: white;
+        }
+
+        .btn-primary {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+            color: white;
+        }
+
+
+        .input-group {
+            margin-bottom: var(--spacing-md);
+        }
+
+        .input-label {
+            display: block;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: var(--spacing-xs);
+        }
+
+        .input {
+            width: 100%;
+            padding: var(--spacing-sm) var(--spacing-md);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-sm);
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            font-size: 13px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .annotation-list {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-sm);
+            background: var(--bg-tertiary);
+        }
+
+        .annotation-item {
+            background: var(--bg-secondary);
+            padding: var(--spacing-sm);
+            margin: var(--spacing-xs) 0;
+            border-radius: var(--radius-sm);
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1px solid transparent;
+        }
+
+
+        .annotation-item.selected {
+            background: rgba(59, 130, 246, 0.1);
+            border-color: var(--accent-primary);
+        }
+
+        .annotation-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
+            cursor: pointer;
+        }
+
+        .color-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 1px solid #fff;
+            flex-shrink: 0;
+        }
+
+        .annotation-details {
+            flex: 1;
+        }
+
+        .annotation-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            gap: 12px;
+            pointer-events: none; /* Tıklamayı engelle */
+        }
+
+        .annotation-label {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 14px;
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-align: left;
+            margin-left: 0;
+        }
+
+        .annotation-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-shrink: 0;
+            pointer-events: auto; /* Butonların tıklanabilir olması için */
+        }
+
+        .color-btn, .edit-btn {
+            background: transparent;
+            border: none;
+            color: #bdc3c7;
+            cursor: pointer;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+
+
+
+        .delete-btn {
+            background: #2c3e50;
+            color: #ecf0f1;
+            border: none;
+            padding: 8px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            min-width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+
+        .delete-btn:active {
+            transform: translateY(0);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        }
+
+        .lock-btn {
+            background: #2c3e50;
+            color: #ecf0f1;
+            border: none;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            margin-right: 8px;
+            min-width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+
+        .lock-btn.locked {
+            background: #2c3e50;
+            color: #e74c3c;
+        }
+
+        .lock-btn.unlocked {
+            background: #2c3e50;
+            color: #27ae60;
+        }
+
+
+        .lock-btn:active {
+            transform: translateY(0);
+        }
+
+        h3 {
+            margin-bottom: 10px;
+            color: #ecf0f1;
+        }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(4px);
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: var(--bg-secondary);
+            padding: var(--spacing-xl);
+            border-radius: var(--radius-lg);
+            width: 400px;
+            color: var(--text-primary);
+            max-height: 90vh;
+            overflow-y: auto;
+            margin: 0;
+            border: 1px solid var(--border-primary);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .modal-header {
+            margin-bottom: var(--spacing-lg);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .modal-header h3 {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .modal-buttons {
+            margin-top: var(--spacing-lg);
+            display: flex;
+            gap: var(--spacing-sm);
+            justify-content: flex-end;
+        }
+
+        .modal-buttons .btn {
+            margin: 0;
+            width: auto;
+            min-width: 80px;
+        }
+
+        /* Proje Seçimi Stilleri */
+        .project-list {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+
+        .project-item {
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-md);
+            margin-bottom: var(--spacing-sm);
+            background: var(--bg-tertiary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .project-item h3 {
+            margin: 0 0 5px 0;
+            color: var(--text-primary);
+            font-size: 16px;
+        }
+
+        .project-item p {
+            margin: 0;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .select-project {
+            margin-left: var(--spacing-md);
+        }
+
+        /* User Info Panel */
+
+        .btn-sm {
+            padding: var(--spacing-xs) var(--spacing-sm);
+            font-size: 12px;
+            min-width: auto;
+        }
+
+        /* Export Modal Specific Styles */
+        .export-modal-content {
+            width: 500px;
+            max-width: 95vw;
+            max-height: 90vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .export-modal-content .modal-header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-primary);
+            padding: 12px 16px;
+            margin: 0;
+            flex-shrink: 0;
+        }
+
+        .export-modal-content .modal-header h3 {
+            color: var(--text-primary);
+            font-size: 16px;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .export-modal-content .close {
+            color: var(--text-secondary);
+            font-size: 18px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 2px;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: var(--radius-sm);
+            transition: all 0.2s ease;
+        }
+
+        .export-modal-content .close:hover {
+            color: var(--text-primary);
+            background: var(--bg-hover);
+        }
+
+        .export-list {
+            flex: 1;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .export-item {
+            padding: 8px 0;
+        }
+
+        .export-option {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+        }
+
+        .export-option:hover {
+            background: var(--bg-hover);
+        }
+
+        .export-label {
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .export-buttons {
+            padding: 16px;
+            border-top: 1px solid var(--border-primary);
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+            flex-shrink: 0;
+        }
+
+        .export-buttons .btn {
+            min-width: 100px;
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        /* Shortcuts Modal Styles - Dark Theme with Sticky Header */
+        .shortcuts-modal-content {
+            max-width: 900px;
+            max-height: 90vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .shortcuts-modal-content .modal-header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-primary);
+            padding: 12px 16px;
+            margin: 0;
+            flex-shrink: 0;
+        }
+
+        .shortcuts-modal-content .modal-header h3 {
+            color: var(--text-primary);
+            font-size: 16px;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .shortcuts-modal-content .close {
+            color: var(--text-secondary);
+            font-size: 18px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 2px;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: var(--radius-sm);
+            transition: all 0.2s ease;
+        }
+
+        .shortcuts-modal-content .close:hover {
+            color: var(--text-primary);
+            background: var(--bg-hover);
+        }
+
+        .shortcuts-list {
+            flex: 1;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .shortcut-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+        }
+
+        .shortcut-key {
+            background: var(--accent-primary);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+            min-width: 80px;
+            text-align: center;
+        }
+
+        .shortcut-desc {
+            color: var(--text-primary);
+            font-size: 14px;
+            flex: 1;
+            margin-left: 16px;
+        }
+
+        /* Empty State Styles */
+        .empty-state {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
+            text-align: center;
+        }
+
+        .empty-state-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .empty-state h3,
+        .empty-state h4 {
+            font-weight: 500;
+            margin: 0;
+        }
+
+        .empty-state p {
+            line-height: 1.4;
+            margin: 0;
+        }
+
+        /* Label Lock Button Styles */
+        .label-lock-btn {
+            background: #2c3e50;
+            color: #ecf0f1;
+            border: none;
+            cursor: pointer;
+            padding: 6px;
+            border-radius: 4px;
+            font-size: 12px;
+            transition: all 0.2s ease;
+            margin-right: 6px;
+            min-width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+        }
+
+
+        .label-lock-btn.locked {
+            background: #2c3e50;
+            color: #e74c3c;
+        }
+
+        .label-lock-btn.unlocked {
+            background: #2c3e50;
+            color: #27ae60;
+        }
+
+        .label-lock-btn.locked:hover {
+            background: #34495e;
+            color: #c0392b;
+        }
+
+        .label-lock-btn.unlocked:hover {
+            background: #34495e;
+            color: #229954;
+        }
+
+        .label-lock-btn:active {
+            transform: translateY(0);
+        }
+
+        /* Annotation Lock Button Styles */
+        .lock-btn {
+            background: transparent;
+            color: #8E8E93;
+            border: 1px solid #8E8E93;
+            cursor: pointer;
+            padding: 4px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+            transition: all 0.2s ease;
+            margin-right: 6px;
+            min-width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .lock-btn:hover {
+            background: #f5f5f5;
+            border-color: #007AFF;
+            color: #007AFF;
+        }
+
+        .lock-btn.locked {
+            background: #e74c3c;
+            border-color: #e74c3c;
+            color: #ffffff;
+        }
+
+        .lock-btn.unlocked {
+            background: transparent;
+            border-color: #8E8E93;
+            color: #8E8E93;
+        }
+
+        .export-modal-content .input-group {
+            margin-bottom: var(--spacing-lg);
+            padding: var(--spacing-md);
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-secondary);
+        }
+
+        .export-modal-content .input-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: var(--spacing-sm);
+            display: flex;
+          
+            gap: var(--spacing-xs);
+        }
+
+        .export-modal-content .radio-group {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: var(--spacing-sm);
+        }
+
+        .export-modal-content .radio-option {
+            padding: var(--spacing-md);
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-secondary);
+            border-radius: var(--radius-sm);
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .export-modal-content .radio-option:hover {
+            background: var(--bg-hover);
+            border-color: var(--accent-primary);
+        }
+
+        .export-modal-content .radio-option input[type="radio"]:checked + span {
+            color: var(--accent-primary);
+            font-weight: 600;
+        }
+
+        .export-modal-content .split-inputs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--spacing-md);
+            align-items: end;
+        }
+
+        .export-modal-content .split-input {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-xs);
+        }
+
+        .export-modal-content .split-input label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .export-modal-content .split-input input {
+            width: 100%;
+            padding: var(--spacing-sm);
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .export-modal-content .setting-item {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            padding: var(--spacing-xs) 0;
+            cursor: pointer;
+        }
+
+        .export-modal-content .setting-label {
+            font-size: 13px;
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .export-options-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--spacing-lg);
+        }
+
+        .export-options-column {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-sm);
+        }
+
+        .quality-control {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-md);
+            padding: var(--spacing-sm);
+            background: var(--bg-secondary);
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-secondary);
+        }
+
+        .quality-label {
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 500;
+            min-width: 50px;
+        }
+
+        .quality-slider {
+            flex: 1;
+            height: 6px;
+            background: var(--bg-tertiary);
+            border-radius: 3px;
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .quality-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            background: var(--accent-primary);
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid var(--bg-primary);
+        }
+
+        .quality-slider::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            background: var(--accent-primary);
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid var(--bg-primary);
+        }
+
+        .quality-value {
+            color: var(--text-primary);
+            font-weight: 600;
+            min-width: 40px;
+            text-align: center;
+            font-size: 14px;
+        }
+
+        .quality-hint {
+            color: var(--text-secondary);
+            margin-top: var(--spacing-xs);
+            display: block;
+            font-size: 12px;
+        }
+
+        .export-modal-content .class-mapping {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-secondary);
+            border-radius: var(--radius-sm);
+            padding: var(--spacing-md);
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .export-modal-content #exportPreview {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-secondary);
+            border-radius: var(--radius-sm);
+            padding: var(--spacing-md);
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 13px;
+            color: var(--text-primary);
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--spacing-sm);
+        }
+
+        .export-modal-content #exportPreview div {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--spacing-xs) 0;
+        }
+
+        .export-modal-content .modal-buttons {
+            margin-top: var(--spacing-xl);
+            padding-top: var(--spacing-lg);
+            border-top: 1px solid var(--border-secondary);
+            display: flex;
+            gap: var(--spacing-sm);
+            justify-content: flex-end;
+        }
+
+        .export-modal-content .modal-buttons .btn {
+            min-width: 100px;
+            padding: var(--spacing-sm) var(--spacing-md);
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .export-modal-content {
+                width: 95vw;
+                margin: var(--spacing-sm);
+            }
+
+            .export-modal-content .split-inputs {
+                grid-template-columns: 1fr;
+            }
+
+            .export-modal-content #exportPreview {
+                grid-template-columns: 1fr;
+            }
+
+            .export-options-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .quality-control {
+                flex-direction: column;
+                align-items: stretch;
+                gap: var(--spacing-sm);
+            }
+
+            .quality-label {
+                min-width: auto;
+                text-align: center;
+            }
+
+            .export-modal-content .modal-buttons {
+                flex-direction: column;
+            }
+
+            .export-modal-content .modal-buttons .btn {
+                width: 100%;
+            }
+        }
+
+        .close {
+            color: var(--text-muted);
+            font-size: 24px;
+            font-weight: 400;
+            cursor: pointer;
+            transition: color 0.2s;
+            background: none;
+            border: none;
+            padding: var(--spacing-xs);
+        }
+
+        .close:hover {
+            color: var(--text-primary);
+        }
+
+        /* Label List Styles */
+        .label-list {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-sm);
+            background: var(--bg-tertiary);
+            margin-bottom: var(--spacing-md);
+        }
+
+        .label-item {
+            background: var(--bg-secondary);
+            padding: var(--spacing-sm);
+            margin: var(--spacing-xs) 0;
+            border-radius: var(--radius-sm);
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1px solid transparent;
+            cursor: pointer;
+        }
+
+        .label-item:hover {
+            background: var(--bg-hover);
+            border-color: var(--border-primary);
+        }
+
+        .label-item.active {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+            color: white;
+        }
+
+        .label-item.active:hover {
+            background: var(--accent-hover);
+            border-color: var(--accent-hover);
+        }
+
+        .label-info {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            flex: 1;
+        }
+
+        .label-color-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 1px solid var(--border-primary);
+            flex-shrink: 0;
+        }
+
+        .label-name {
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .label-actions {
+            display: flex;
+            gap: var(--spacing-xs);
+            align-items: center;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .label-item:hover .label-actions {
+            opacity: 1;
+        }
+
+        .label-delete-btn {
+            background: var(--accent-error);
+            color: white;
+            border: none;
+            padding: 2px 6px;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-size: 10px;
+            transition: all 0.2s;
+        }
+
+        .label-delete-btn:hover {
+            background: #c0392b;
+        }
+
+        /* Label Suggestions Styles */
+        .label-suggestions {
+            margin-top: var(--spacing-sm);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-sm);
+            background: var(--bg-tertiary);
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .suggestion-item {
+            padding: var(--spacing-sm);
+            cursor: pointer;
+            border-bottom: 1px solid var(--border-secondary);
+            transition: background-color 0.2s;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+        }
+
+        .suggestion-item:last-child {
+            border-bottom: none;
+        }
+
+        .suggestion-item:hover {
+            background: var(--bg-hover);
+        }
+
+        .suggestion-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 1px solid var(--border-primary);
+            flex-shrink: 0;
+        }
+
+        .suggestion-text {
+            flex: 1;
+            color: var(--text-primary);
+        }
+
+        .suggestion-hint {
+            color: var(--text-muted);
+            font-size: 10px;
+            font-style: italic;
+        }
+
+        /* Favori Etiketler */
+        .favorite-labels {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .favorite-label {
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 12px;
+            background: linear-gradient(135deg, #2c3e50, #34495e);
+            border: 1px solid #34495e;
+            border-radius: 20px;
+            font-size: 0.9em;
+            color: #ffffff;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            user-select: none;
+        }
+
+        .favorite-label:hover {
+            background: linear-gradient(135deg, #34495e, #2c3e50);
+            border-color: #3498db;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(52, 152, 219, 0.3);
+        }
+
+        .favorite-label .favorite-icon {
+            margin-right: 6px;
+            color: #ffc107;
+            font-size: 0.8em;
+        }
+
+        .favorite-label .favorite-name {
+            font-weight: 500;
+        }
+
+        /* Favori Etiketler Listesi */
+        .favorite-labels-list {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px;
+            background: var(--bg-secondary);
+        }
+
+        /* Etiket Seçim Butonları */
+        .label-selection-button {
+            display: flex;
+            align-items: center;
+            width: 100%;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #2c3e50, #34495e);
+            border: 1px solid #34495e;
+            border-radius: 8px;
+            color: #ffffff;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            user-select: none;
+            font-size: 0.9em;
+        }
+
+        .label-selection-button:hover {
+            background: linear-gradient(135deg, #34495e, #2c3e50);
+            border-color: #3498db;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(52, 152, 219, 0.3);
+        }
+
+        .label-selection-button:active {
+            transform: translateY(0);
+            box-shadow: 0 1px 4px rgba(52, 152, 219, 0.2);
+        }
+
+        .label-button-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            margin-right: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .label-button-text {
+            font-weight: 500;
+            flex: 1;
+        }
+
+        .favorite-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            margin-bottom: 8px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+
+        .favorite-item:hover {
+            background: var(--bg-hover);
+            border-color: var(--accent-primary);
+        }
+
+        .favorite-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .favorite-item-content {
+            display: flex;
+            align-items: center;
+            flex: 1;
+        }
+
+        .favorite-item-icon {
+            margin-right: 8px;
+            color: #ffc107;
+            font-size: 0.9em;
+        }
+
+        .favorite-item-name {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .favorite-item-actions {
+            display: flex;
+            gap: 4px;
+        }
+
+        .favorite-item-btn {
+            padding: 4px 8px;
+            font-size: 0.8em;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .favorite-item-btn.edit {
+            background: var(--accent-primary);
+            color: white;
+        }
+
+        .favorite-item-btn.edit:hover {
+            background: var(--accent-hover);
+        }
+
+        .favorite-item-btn.delete {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .favorite-item-btn.delete:hover {
+            background: #c0392b;
+        }
+
+        /* Favori Input Container */
+        .favorite-input-container {
+            display: flex;
+            gap: 8px;
+            align-items: stretch;
+        }
+
+        .favorite-input-container .input {
+            flex: 1;
+            height: 40px;
+        }
+
+        .favorite-add-btn {
+            width: 40px;
+            height: 40px;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            min-width: 40px;
+        }
+
+        .favorite-add-btn i {
+            font-size: 14px;
+        }
+
+        /* Klasör Seçici */
+        .folder-selector-container {
+            display: flex;
+            gap: 8px;
+            align-items: stretch;
+        }
+        .folder-selector-container .input {
+            flex: 1;
+            height: 40px;
+        }
+        #selectExportFolder {
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+
+        /* Color Picker Styles */
+        .color-picker-container {
+            display: flex;
+            align-items: center;
+        }
+
+        .color-options {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .color-option {
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+
+        .color-option:hover {
+            transform: scale(1.1);
+            border-color: var(--accent-primary);
+        }
+
+        .color-option.selected {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+        }
+
+        .color-option::after {
+            content: '✓';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .color-option.selected::after {
+            opacity: 1;
+        }
+
+
+        /* Toast Notification Styles */
+        .toast-container {
+            position: fixed;
+            bottom: var(--spacing-lg);
+            right: var(--spacing-lg);
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-sm);
+        }
+
+        .toast {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            padding: var(--spacing-md) var(--spacing-lg);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-lg);
+            border: 1px solid var(--border-primary);
+            transform: translateX(400px);
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            max-width: 350px;
+            word-wrap: break-word;
+            font-size: 13px;
+        }
+
+        .toast.show {
+            transform: translateX(0);
+            opacity: 1;
+        }
+
+        .toast.success {
+            background: var(--accent-success);
+            border-color: var(--accent-success);
+            color: white;
+        }
+
+        .toast.error {
+            background: var(--accent-error);
+            border-color: var(--accent-error);
+            color: white;
+        }
+
+        .toast.warning {
+            background: var(--accent-warning);
+            border-color: var(--accent-warning);
+            color: white;
+        }
+
+        .toast.info {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+            color: white;
+        }
+
+
+        /* Image List Styles */
+        .image-navigation {
+            text-align: center;
+            margin: 10px 0;
+            font-size: 12px;
+        }
+
+        .image-navigation .btn {
+            font-size: 10px;
+            padding: 5px 8px;
+            margin: 0 5px;
+            width: auto;
+            min-height: 30px;
+            display: inline-block;
+        }
+
+        .image-list {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-md);
+            padding: 2px;
+            background-color: var(--bg-tertiary);
+            display: flex;
+            flex-direction: column;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border-primary) transparent;
+        }
+
+        .image-list::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .image-list::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .image-list::-webkit-scrollbar-thumb {
+            background: var(--border-primary);
+            border-radius: 2px;
+        }
+
+
+        /* Advanced Pagination Styles */
+        .advanced-pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 0;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+
+        .page-btn {
+            width: 32px;
+            height: 32px;
+            border: 2px solid var(--border-primary);
+            border-radius: 50%;
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+
+        .page-btn:hover:not(:disabled) {
+            background-color: var(--accent-primary);
+            color: white;
+            border-color: var(--accent-primary);
+        }
+
+        .page-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .page-numbers {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .page-number {
+            width: 22px;
+            height: 22px;
+            border: 1px solid var(--border-primary);
+            border-radius: 8px;
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 10px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            min-width: 22px;
+        }
+
+        .page-number:hover {
+            background-color: var(--bg-hover);
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
+        }
+
+        .page-number.active {
+            background-color: var(--accent-primary);
+            color: white;
+            border-color: var(--accent-primary);
+        }
+
+        .page-number.ellipsis {
+            background: transparent;
+            border: none;
+            cursor: default;
+            color: var(--text-muted);
+            font-weight: bold;
+        }
+
+        .page-number.ellipsis:hover {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+        }
+
+
+        .image-thumbnail {
+            position: relative;
+            background-color: var(--bg-secondary);
+            border: 1px solid transparent;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            padding: 4px 6px;
+            font-size: 0.7rem;
+            position: relative;
+            overflow: hidden;
+            color: var(--text-primary);
+            min-height: 32px;
+            margin-bottom: 1px;
+        }
+
+        /* Hiçbir hover efekti olmasın */
+        .image-thumbnail:hover {
+            background-color: inherit !important;
+            border-color: inherit !important;
+            transform: none !important;
+            box-shadow: none !important;
+            color: inherit !important;
+        }
+
+
+        .image-thumbnail.active {
+            border-color: var(--accent-primary);
+            background-color: var(--accent-primary);
+            color: white;
+        }
+
+        /* Aktif fotoğrafın hover durumunda da aynı kalması */
+        .image-thumbnail.active:hover {
+            border-color: var(--accent-primary) !important;
+            background-color: var(--accent-primary) !important;
+            color: white !important;
+        }
+
+        .image-thumbnail.active .image-name {
+            color: white;
+        }
+
+        .image-thumbnail.active .image-details {
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        .image-thumbnail .image-preview {
+            width: 24px;
+            height: 24px;
+            border-radius: 3px;
+            object-fit: cover;
+            margin-right: 6px;
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
+            flex-shrink: 0;
+        }
+
+
+        .image-thumbnail .image-info {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            min-width: 0;
+        }
+
+        .image-thumbnail .image-name {
+            font-weight: 500;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-size: 0.7rem;
+            flex: 1;
+            margin-right: 4px;
+        }
+
+        .image-thumbnail .image-position {
+            font-size: 0.6rem;
+            color: var(--text-secondary);
+            text-align: right;
+        }
+
+        .image-thumbnail .image-badges {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        .image-thumbnail .image-number {
+            background: var(--accent-primary);
+            color: white;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.6rem;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .image-thumbnail.active .image-number {
+            background: white;
+            color: var(--accent-primary);
+        }
+
+        .image-thumbnail .annotation-count {
+            background: var(--accent-success);
+            color: white;
+            border-radius: 8px;
+            padding: 1px 4px;
+            font-size: 0.5rem;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+
+
+
+        /* Navigation Shortcuts */
+        .nav-shortcuts {
+            display: flex;
+            gap: var(--spacing-sm);
+            margin-top: var(--spacing-sm);
+        }
+
+        .nav-btn {
+            flex: 1;
+            padding: var(--spacing-sm);
+            background: var(--bg-hover);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--spacing-xs);
+        }
+
+        .nav-btn:hover {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+            color: white;
+        }
+
+        .nav-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* User Info Display */
+        .user-info-display {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-md);
+            margin-bottom: var(--spacing-md);
+        }
+
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--spacing-sm);
+        }
+
+        .info-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .info-value {
+            font-weight: 500;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            text-align: right;
+            max-width: 150px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .image-name {
+            font-weight: bold;
+            margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .image-annotations {
+            font-size: 10px;
+            color: #bdc3c7;
+        }
+
+        .image-delete-btn {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background-color: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: all 0.2s ease;
+            z-index: 10;
+        }
+
+
+
+
+        /* Color Filter Styles */
+        .filter-controls {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #2c3e50;
+            border-radius: 5px;
+        }
+
+        .filter-radio {
+            display: flex;
+            align-items: center;
+            margin: 8px 0;
+            cursor: pointer;
+            padding: 5px;
+            border-radius: 4px;
+            transition: background-color 0.2s ease;
+            user-select: none;
+        }
+
+        .filter-radio:hover {
+            background-color: #34495e;
+        }
+
+        .filter-radio input[type="radio"] {
+            margin-right: 8px;
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: #3498db;
+        }
+
+        .filter-label {
+            color: #ecf0f1;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .filter-checkbox input:checked + .filter-label {
+            color: #3498db;
+            font-weight: bold;
+        }
+
+        #resetFilters {
+            margin-top: 10px;
+            width: 100%;
+            background-color: #e67e22;
+            font-size: 12px;
+            padding: 8px;
+        }
+
+        #resetFilters:hover {
+            background-color: #d35400;
+        }
+
+        /* Switch Styles */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--border-primary);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 24px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 2px;
+            bottom: 2px;
+            background-color: var(--text-primary);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 50%;
+            box-shadow: var(--shadow-sm);
+        }
+
+        input:checked + .slider {
+            background-color: var(--accent-primary);
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(20px);
+        }
+
+        .slider:hover {
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .setting-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: var(--spacing-sm) 0;
+            border-bottom: 1px solid var(--border-secondary);
+        }
+
+        .setting-item:last-child {
+            border-bottom: none;
+        }
+
+        .quick-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--spacing-sm);
+        }
+
+        .quick-actions .btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: var(--spacing-sm);
+            font-size: 0.8rem;
+            text-align: center;
+        }
+
+        .quick-actions .btn i {
+            margin-bottom: 4px;
+            font-size: 1.1rem;
+        }
+
+        .setting-label {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .setting-label i {
+            width: 16px;
+            text-align: center;
+        }
+
+        .image-navigation {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            margin-bottom: var(--spacing-md);
+        }
+
+        .image-counter {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-weight: 500;
+            min-width: 60px;
+            text-align: center;
+        }
+
+        .image-navigation .btn {
+            flex: 1;
+            margin: 0;
+            min-height: 32px;
+            font-size: 12px;
+        }
+
+        .filter-controls {
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-md);
+            border: 1px solid var(--border-primary);
+        }
+
+        .filter-buttons {
+            display: flex;
+            gap: var(--spacing-sm);
+            margin-top: var(--spacing-sm);
+        }
+
+        .filter-buttons .btn {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--spacing-xs);
+        }
+
+        .btn-primary {
+            background: var(--accent-primary);
+            color: white;
+            border: 1px solid var(--accent-primary);
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+            border-color: var(--accent-hover);
+        }
+
+        .filter-button {
+            display: flex;
+            align-items: center;
+            margin: var(--spacing-sm) 0;
+            padding: var(--spacing-sm) var(--spacing-md);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 2px solid var(--border-primary);
+            background: var(--bg-secondary);
+            user-select: none;
+        }
+
+        .filter-button:hover {
+            background: var(--bg-hover);
+            border-color: var(--accent-primary);
+        }
+
+        .filter-button.active {
+            border-color: var(--accent-primary);
+            background: var(--accent-primary);
+            color: white;
+        }
+
+        .filter-button.active .filter-icon,
+        .filter-button.active .filter-label {
+            color: white;
+        }
+
+        .filter-icon {
+            margin-right: var(--spacing-sm);
+            font-size: 16px;
+        }
+
+        .filter-label {
+            font-size: 14px;
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .current-color-display {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            margin: var(--spacing-md) 0;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .current-color-swatch {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid var(--border-primary);
+        }
+
+        .radio-group {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-sm);
+        }
+
+        .radio-option {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            padding: var(--spacing-sm);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .radio-option:hover {
+            background: var(--bg-hover);
+        }
+
+        .radio-option input[type="radio"] {
+            accent-color: var(--accent-primary);
+        }
+
+        .help-link {
+            color: var(--accent-primary);
+            text-decoration: none;
+            font-size: 12px;
+            margin-left: auto;
+        }
+
+        .help-link:hover {
+            text-decoration: underline;
+        }
+
+        .split-inputs {
+            display: flex;
+            gap: var(--spacing-md);
+            align-items: center;
+        }
+
+        .split-input {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+        }
+
+        .split-input label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .class-mapping {
+            max-height: 150px;
+            overflow-y: auto;
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-sm);
+            padding: var(--spacing-sm);
+            background: var(--bg-tertiary);
+        }
+
+        /* New Weather Filter Styles - Dark Theme */
+        .current-filter-display {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-sm);
+            margin-bottom: 8px;
+            min-height: 40px;
+        }
+
+        .filter-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .filter-icon {
+            font-size: 16px;
+        }
+
+        .filter-name {
+            font-weight: 500;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .add-filter-section {
+            text-align: left;
+        }
+
+        .no-filter-message {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-sm);
+            margin-bottom: 8px;
+            min-height: 40px;
+        }
+
+        .no-filter-text {
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-weight: 400;
+        }
+
+        .filter-action-btn {
+            width: 32px;
+            height: 32px;
+            border: none;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .filter-action-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .filter-action-btn.add-btn {
+            background: var(--accent-primary);
+            color: white;
+        }
+
+        .filter-action-btn.add-btn:hover {
+            background: var(--accent-hover);
+        }
+
+        .filter-action-btn.remove-btn {
+            background: var(--accent-error);
+            color: white;
+        }
+
+        .filter-action-btn.remove-btn:hover {
+            background: #dc2626;
+        }
+
+        .filter-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .filter-modal-content {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-lg);
+            padding: 20px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .filter-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border-primary);
+        }
+
+        .filter-modal-header h4 {
+            margin: 0;
+            color: var(--text-primary);
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .btn-close {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            padding: 0;
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: var(--radius-sm);
+            transition: all 0.2s ease;
+        }
+
+        .btn-close:hover {
+            color: var(--text-primary);
+            background: var(--bg-hover);
+        }
+
+        .filter-options {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 10px;
+        }
+
+        .filter-option {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 12px 8px;
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: var(--bg-tertiary);
+            text-align: center;
+        }
+
+        .filter-option:hover {
+            border-color: var(--accent-primary);
+            background: var(--bg-hover);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .filter-option .filter-icon {
+            font-size: 20px;
+            margin-bottom: 6px;
+        }
+
+        .filter-option .filter-label {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Main Application -->
+    <div class="main-application" id="mainApplication">
+        <!-- Toggle Button -->
+      
+        
+        <div class="sidebar-container">
+            <div class="sidebar" id="sidebar"> 
+        <!-- User Info Section -->
+        <div class="section">
+            <div class="section-title">
+                <i class="fas fa-user"></i>
+                Kullanıcı Bilgileri
+            </div>
+            <div class="user-info-display">
+                <div class="info-item">
+                    <span class="info-label">Kullanıcı:</span>
+                    <span class="info-value" id="currentUser">-</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Proje:</span>
+                    <span class="info-value" id="projectName">-</span>
+                </div>
+            </div>
+            <button class="btn" id="logoutBtn">
+                <i class="fas fa-sign-out-alt"></i>
+                Oturumu Kapat
+            </button>
+        </div>
+
+        <!-- Dashboard Navigation Section -->
+        <div class="section">
+            <div class="section-title">
+                <i class="fas fa-tachometer-alt"></i>
+                Navigasyon
+            </div>
+            <button class="btn btn-primary" id="backToDashboardBtn">
+                <i class="fas fa-arrow-left"></i>
+                Dashboard'a Dön
+            </button>
+        </div>
+
+        <!-- Project Stats Section -->
+        <div class="section" id="projectStatsSection" style="display: none;">
+            <div class="section-title">
+                <i class="fas fa-chart-bar"></i>
+                Proje İstatistikleri
+            </div>
+            <div class="stats-container">
+                <div class="stat-item">
+                    <div class="stat-value" id="totalImages">0</div>
+                    <div class="stat-label">Toplam Resim</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="labeledImages">0</div>
+                    <div class="stat-label">Etiketli Resim</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="totalLabels">0</div>
+                    <div class="stat-label">Toplam Etiket</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="completionRate">0%</div>
+                    <div class="stat-label">Tamamlanma</div>
+                </div>
+            </div>
+            <div class="label-counts" id="labelCounts">
+                <!-- Label sayıları buraya eklenecek -->
+            </div>
+        </div>
+
+
+        <!-- Tools Section - Kaldırıldı: Sadece dikdörtgen kullanılıyor -->
+
+
+        <!-- Settings Section -->
+        <div class="section">
+            <div class="section-title">
+                <i class="fas fa-cog"></i>
+                Ayarlar
+            </div>
+            <div class="setting-item">
+                <div class="setting-label">
+                    <i class="fas fa-bolt"></i>
+                    Hızlı Etiket Modu
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="quickLabelModeToggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="setting-item">
+                <div class="setting-label">
+                    <i class="fas fa-th"></i>
+                    Grid Çizgileri
+        </div>
+                <label class="switch">
+                    <input type="checkbox" id="gridToggle" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="setting-item">
+                <div class="setting-label">
+                    <i class="fas fa-crosshairs"></i>
+                    Tam Ekran İmleç
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="crosshairToggle" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="setting-item" style="display: flex; align-items: center; gap: 8px;">
+                <div class="setting-label" style="margin: 0; flex: 1;">
+                    <i class="fas fa-font"></i>
+                    Etiket Formatı
+                </div>
+                <select id="labelCaseMode" class="input" style="width: auto; min-width: 80px; margin: 0; flex-shrink: 0; font-size: 12px;">
+                    <option value="original">Default</option>
+                    <option value="uppercase">Büyük</option>
+                    <option value="lowercase">Küçük</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- View Controls Section - Kaldırıldı: Mouse wheel ile zoom -->
+
+
+        <!-- Image List Section -->
+        <div class="section" id="imageListSection" style="display: none;">
+            <div class="section-title">
+                <i class="fas fa-list"></i>
+                Fotoğraf Listesi
+                <span id="imageCount" style="font-size: 0.8rem; color: var(--text-muted); margin-left: auto;"></span>
+            </div>
+            
+            <!-- Advanced Pagination -->
+            <div class="advanced-pagination">
+                <button class="page-btn" id="prevPageBtn" disabled>‹</button>
+                <div class="page-numbers" id="pageNumbers">
+                    <!-- Sayfa numaraları buraya eklenecek -->
+                </div>
+                <button class="page-btn" id="nextPageBtn" disabled>›</button>
+            </div>
+            
+            <div class="image-list" id="imageList">
+                <!-- Fotoğraf listesi burada görünecek -->
+            </div>
+            
+        </div>
+
+        <!-- Labels Section -->
+        <div class="section">
+            <div class="section-title">
+                <i class="fas fa-tags"></i>
+                Etiketler
+            </div>
+            <div class="label-list" id="labelList">
+                <!-- Etiket listesi burada görünecek -->
+            </div>
+            <button class="btn" id="addNewLabel">
+                <i class="fas fa-plus"></i>
+                Etiket Ekle
+            </button>
+            <button class="btn" id="addFavoriteLabel">
+                <i class="fas fa-star"></i>
+                Favori Ekle
+            </button>
+        </div>
+
+
+
+        <!-- Weather Filters Section -->
+        <div class="section">
+            <div class="section-title">
+                <i class="fas fa-cloud-sun"></i>
+                Hava Durumu Filtresi
+            </div>
+            
+            <!-- Mevcut Filtre Gösterimi -->
+            <div class="current-filter-display" id="currentFilterDisplay" style="display: none;">
+                <div class="filter-info">
+                    <span class="filter-icon" id="currentFilterIcon">🌤️</span>
+                    <span class="filter-name" id="currentFilterName">Filtre</span>
+                </div>
+                <button id="removeFilter" class="filter-action-btn remove-btn" title="Filtreyi Sil">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+            
+            <!-- Filtre Ekleme Butonu -->
+            <div class="add-filter-section" id="addFilterSection">
+                <div class="no-filter-message">
+                    <span class="no-filter-text">Eklenmiş filtre bulunamadı.</span>
+                    <button id="addFilterBtn" class="filter-action-btn add-btn" title="Filtre Ekle">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Filtre Seçim Modalı -->
+            <div class="filter-modal" id="filterModal" style="display: none;">
+                <div class="filter-modal-content">
+                    <div class="filter-modal-header">
+                        <h4>Hava Durumu Filtresi Seç</h4>
+                        <button id="closeFilterModal" class="btn-close">×</button>
+                    </div>
+                    <div class="filter-options">
+                        <div class="filter-option" data-filter="sunny">
+                            <div class="filter-icon">☀️</div>
+                            <div class="filter-label">Güneşli</div>
+                        </div>
+                        <div class="filter-option" data-filter="cloudy">
+                            <div class="filter-icon">☁️</div>
+                            <div class="filter-label">Bulutlu</div>
+                        </div>
+                        <div class="filter-option" data-filter="rainy">
+                            <div class="filter-icon">🌧️</div>
+                            <div class="filter-label">Yağmurlu</div>
+                        </div>
+                        <div class="filter-option" data-filter="snowy">
+                            <div class="filter-icon">❄️</div>
+                            <div class="filter-label">Karlı</div>
+                        </div>
+                        <div class="filter-option" data-filter="foggy">
+                            <div class="filter-icon">🌫️</div>
+                            <div class="filter-label">Sisli</div>
+                        </div>
+                        <div class="filter-option" data-filter="sunset">
+                            <div class="filter-icon">🌅</div>
+                            <div class="filter-label">Gün Batımı</div>
+                        </div>
+                        <div class="filter-option" data-filter="night">
+                            <div class="filter-icon">🌙</div>
+                            <div class="filter-label">Gece</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Export Section -->
+        <div class="section">
+            <div class="section-title">
+                <i class="fas fa-download"></i>
+                Dışa Aktar
+            </div>
+            <button class="btn" id="yoloExport" style="background: #e74c3c; color: white;">
+                <i class="fas fa-database"></i>
+                YOLO Çıktısı
+            </button>
+            <button class="btn" id="exportData">
+                <i class="fas fa-file-export"></i>
+                Dışa Aktar Seçenekleri
+            </button>
+        </div>
+
+        <!-- Help Section  -->
+        <div class="section">
+            <div class="section-title">
+                <i class="fas fa-question-circle"></i>
+                Yardım
+            </div>
+            <button class="btn" id="showShortcuts">
+                <i class="fas fa-keyboard"></i>
+                Kısayollar
+            </button>
+        </div>
+            </div>
+        </div>
+
+        <div class="main-content">
+        <div class="canvas-container" id="imageContainer">
+            <img id="currentImage" style="display: none; max-width: 100%; max-height: 100%; object-fit: contain;" />
+            <canvas id="canvas"></canvas>
+            <div class="grid-overlay" id="gridOverlay">
+                <div class="grid-lines major" id="majorGrid"></div>
+                <div class="grid-lines minor" id="minorGrid"></div>
+            </div>
+            <div class="polygon-points-container" id="polygonPointsContainer"></div>
+            <div class="fullscreen-crosshair" id="fullscreenCrosshair">
+                <div class="crosshair-line crosshair-vertical" id="crosshairVertical"></div>
+                <div class="crosshair-line crosshair-horizontal" id="crosshairHorizontal"></div>
+                <div class="crosshair-center" id="crosshairCenter"></div>
+            </div>
+            <div class="polygon-status" id="polygonStatus">
+                <div class="status-text" id="polygonStatusText">Çokgen Çizimi</div>
+                <div class="instruction" id="polygonInstruction">İlk noktayı tıklayın</div>
+            </div>
+            <div class="coordinates-display" id="coordinatesDisplay">
+                <span class="coord-label">X:</span><span class="coord-value" id="coordX">0</span>
+                <span class="coord-label">Y:</span><span class="coord-value" id="coordY">0</span>
+            </div>
+        </div>
+        </div>
+    </div>
+
+    <!-- Start Modal -->
+    <div id="startModal" class="modal show">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🏷️ Etiketleme Uygulaması</h3>
+            </div>
+            <form id="startForm">
+                <div class="input-group">
+                    <label class="input-label" for="username">Kullanıcı Adınız:</label>
+                    <input type="text" class="input" id="username" placeholder="Adınızı girin" required>
+                </div>
+                <div class="input-group">
+                    <label class="input-label" for="projectSelect">Proje Seçin:</label>
+                    <select class="input" id="projectSelect" required>
+                        <option value="">Proje seçin...</option>
+                    </select>
+                </div>
+                <div class="modal-buttons">
+                    <button type="button" class="btn" id="logoutBtn">Çıkış</button>
+                    <button type="submit" class="btn btn-primary">Başla</button>
+                </div>
+            </form>
+            <div id="startError" class="error-message" style="display: none;"></div>
+        </div>
+    </div>
+
+    <!-- Favorite Labels Modal -->
+    <div id="favoriteLabelsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Favori Etiketler</h3>
+                <button class="close" id="closeFavoriteModal">&times;</button>
+            </div>
+            <div class="input-group">
+                <label class="input-label" for="newFavoriteInput">Yeni Favori Etiket</label>
+                <div class="favorite-input-container">
+                    <input type="text" class="input" id="newFavoriteInput" placeholder="örn: arac" />
+                    <button class="btn btn-primary favorite-add-btn" id="addFavoriteBtn">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="input-group">
+                <label class="input-label">Mevcut Favori Etiketler</label>
+                <div id="favoriteLabelsList" class="favorite-labels-list">
+                    <!-- Favori etiketler burada görünecek -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Export Modal -->
+    <div id="exportModal" class="modal">
+        <div class="modal-content export-modal-content">
+            <div class="modal-header">
+                <h3>🚀 Dışa Aktar Seçenekleri</h3>
+                <button class="close" id="closeExport">&times;</button>
+            </div>
+            
+            <div class="export-list">
+                <div class="export-item">
+                    <label class="export-option">
+                        <input type="radio" name="exportFormat" value="yolo" checked>
+                        <span class="export-label">YOLO Format (.txt + .yaml)</span>
+                    </label>
+                </div>
+                <div class="export-item">
+                    <label class="export-option">
+                        <input type="radio" name="exportFormat" value="yolo_segmentation">
+                        <span class="export-label">YOLO Segmentation (.txt + .yaml)</span>
+                    </label>
+                </div>
+                <div class="export-item">
+                    <label class="export-option">
+                        <input type="radio" name="exportFormat" value="coco">
+                        <span class="export-label">COCO Format (.json)</span>
+                    </label>
+                </div>
+                <div class="export-item">
+                    <label class="export-option">
+                        <input type="checkbox" id="includeImages" checked>
+                        <span class="export-label">Resimleri Dahil Et</span>
+                    </label>
+                </div>
+                <div class="export-item">
+                    <label class="export-option">
+                        <input type="checkbox" id="normalizeCoordinates" checked>
+                        <span class="export-label">Koordinatları Normalleştir</span>
+                    </label>
+                </div>
+            </div>
+            
+            <div class="export-buttons">
+                <button class="btn" id="cancelExport">İptal</button>
+                <button class="btn btn-primary" id="confirmExport">Dışa Aktar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- YOLO Example Modal -->
+    <div id="yoloExampleModal" class="modal">
+        <div class="modal-content" style="width: 700px; max-height: 80vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h3>🚀 YOLO Usage Example</h3>
+                <button class="close" id="closeYoloExample">&times;</button>
+            </div>
+            
+            <div style="margin: 15px 0; font-family: monospace; font-size: 13px;">
+                <h4>1. Google Colab'de YOLOv8 Kurulumu:</h4>
+                <div style="background: #2c3e50; color: #ecf0f1; padding: 10px; border-radius: 5px; margin: 10px 0;">
+<pre>!pip install ultralytics
+from ultralytics import YOLO
+import torch
+
+print(f"PyTorch: {torch.__version__}")
+print(f"CUDA Available: {torch.cuda.is_available()}")</pre>
+                </div>
+
+                <h4>2. Dataset ZIP'ini Yükle ve Çıkart:</h4>
+                <div style="background: #2c3e50; color: #ecf0f1; padding: 10px; border-radius: 5px; margin: 10px 0;">
+<pre># Colab'e ZIP dosyasını yükle (Files panelinden sürükle-bırak)
+!unzip your_dataset_yolo.zip
+
+# Dataset yapısını kontrol et
+!ls -la your_dataset/
+!head your_dataset/classes.txt
+!head your_dataset/dataset.yaml</pre>
+                </div>
+
+                <h4>3. Model Eğitimi:</h4>
+                <div style="background: #2c3e50; color: #ecf0f1; padding: 10px; border-radius: 5px; margin: 10px 0;">
+<pre># Pre-trained YOLO modeli yükle
+model = YOLO('yolov8n.pt')  # nano model (hızlı)
+# model = YOLO('yolov8s.pt')  # small model (daha iyi)
+# model = YOLO('yolov8m.pt')  # medium model (en iyi)
+
+# Eğitimi başlat
+results = model.train(
+    data='your_dataset/dataset.yaml',
+    epochs=100,                # Epoch sayısı
+    imgsz=640,                # Resim boyutu
+    batch=16,                 # Batch size
+    name='plaka_model',       # Model adı
+    save_period=10            # Her 10 epoch'ta kaydet
+)</pre>
+                </div>
+
+                <h4>4. Model Testi ve Kullanımı:</h4>
+                <div style="background: #2c3e50; color: #ecf0f1; padding: 10px; border-radius: 5px; margin: 10px 0;">
+<pre># Eğitilen modeli yükle
+model = YOLO('runs/detect/plaka_model/weights/best.pt')
+
+# Test resmi üzerinde tespit
+results = model('test_image.jpg')
+results.show()  # Sonuçları göster
+
+# Birden fazla resim
+results = model(['image1.jpg', 'image2.jpg'])
+for i, result in enumerate(results):
+    result.save(f'result_{i}.jpg')
+
+# Webcam ile real-time tespit
+model.predict(source=0, show=True)  # 0 = webcam</pre>
+                </div>
+
+                <h4>5. Model Performansını Değerlendirme:</h4>
+                <div style="background: #2c3e50; color: #ecf0f1; padding: 10px; border-radius: 5px; margin: 10px 0;">
+<pre># Validation seti üzerinde test
+metrics = model.val()
+print(f"mAP50: {metrics.box.map50}")
+print(f"mAP50-95: {metrics.box.map}")
+
+# Confusion matrix ve diğer metrikler
+!ls runs/detect/plaka_model/
+# confusion_matrix.png, results.png, val_batch0_labels.jpg</pre>
+                </div>
+
+                <h4>6. Model Export (Deployment için):</h4>
+                <div style="background: #2c3e50; color: #ecf0f1; padding: 10px; border-radius: 5px; margin: 10px 0;">
+<pre># ONNX formatına export (hızlı inference)
+model.export(format='onnx')
+
+# TensorRT (NVIDIA GPU için)
+model.export(format='engine')
+
+# Mobile için
+model.export(format='coreml')  # iOS
+model.export(format='tflite')  # Android</pre>
+                </div>
+
+                <div style="background: #27ae60; color: white; padding: 10px; border-radius: 5px; margin: 10px 0;">
+                    <strong>💡 İpuçları:</strong><br>
+                    • Küçük dataset için epochs=50-100 yeterli<br>
+                    • GPU yoksa yolov8n.pt kullanın (daha hızlı)<br>
+                    • Validation loss azalmayı bırakırsa eğitimi durdurun<br>
+                    • mAP50 > 0.8 ise model başarılı sayılır
+                </div>
+
+                <div style="text-align: center; margin: 15px 0;">
+                    <a href="https://docs.ultralytics.com/modes/train/" target="_blank" style="color: #3498db; text-decoration: none;">
+                        🔗 Ultralytics YOLO Dokümantasyonu
+                    </a>
+                </div>
+            </div>
+
+            <div class="modal-buttons">
+                <button class="btn" id="closeYoloExampleBtn">Kapat</button>
+            </div>
+        </div>
+    </div>
+
+        <!-- Shortcuts Modal -->
+        <div id="shortcutsModal" class="modal">
+            <div class="modal-content shortcuts-modal-content">
+                <div class="modal-header">
+                    <h3>⌨️ Klavye Kısayolları</h3>
+                    <button class="close" id="closeShortcutsModal">&times;</button>
+                </div>
+                
+                <div class="shortcuts-list">
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">Ctrl/⌘ + Z</span>
+                        <span class="shortcut-desc">Geri Al</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">Ctrl/⌘ + Shift + Z</span>
+                        <span class="shortcut-desc">İleri Al</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">Ctrl/⌘ + C</span>
+                        <span class="shortcut-desc">Etiket Kopyala</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">Ctrl/⌘ + V</span>
+                        <span class="shortcut-desc">Etiket Yapıştır</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">Delete</span>
+                        <span class="shortcut-desc">Seçili Etiketi Sil</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">Backspace</span>
+                        <span class="shortcut-desc">Odaklanan Etiketi Sil</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">N</span>
+                        <span class="shortcut-desc">Yeni Etiket Ekle</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">A</span>
+                        <span class="shortcut-desc">Favori Etiket Ekle</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">Mouse Wheel</span>
+                        <span class="shortcut-desc">Yakınlaştır/Uzaklaştır</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">Space + Drag</span>
+                        <span class="shortcut-desc">Pan (Kaydırma)</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">F</span>
+                        <span class="shortcut-desc">Fotoğrafı Hizala</span>
+                    </div>
+                    <div class="shortcut-item">
+                        <span class="shortcut-key">Ctrl/⌘ + S</span>
+                        <span class="shortcut-desc">Proje Kaydet</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast Container -->
+        <div class="toast-container" id="toastContainer"></div>
+    </div> <!-- End of main-application -->
+
+    <!-- Label Modal -->
+    <div id="labelModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Etiket Ekle</h3>
+                <button class="close">&times;</button>
+            </div>
+            <div class="input-group">
+                <label class="input-label">Favori Etiketler</label>
+                <div id="favoriteLabels" class="favorite-labels">
+                    <!-- Favori etiketler burada görünecek -->
+                </div>
+            </div>
+            <div class="input-group">
+                <div id="availableLabelsContainer" class="available-labels-container">
+                    <!-- Mevcut etiketler burada görünecek -->
+                </div>
+            </div>
+            <div class="input-group">
+                <label class="input-label" for="modalLabelInput">Etiket Adı *</label>
+                <input type="text" class="input" id="modalLabelInput" placeholder="örn: #arac" />
+                <div id="labelSuggestions" class="label-suggestions" style="display: none;">
+                    <!-- Etiket önerileri burada görünecek -->
+                </div>
+            </div>
+            <div class="input-group">
+                <label class="input-label">Renk Seçimi</label>
+                <div class="color-picker-container">
+                    <div class="color-options" id="colorOptions">
+                        <div class="color-option" data-color="#2ecc71" style="background-color: #2ecc71;"></div>
+                        <div class="color-option" data-color="#e74c3c" style="background-color: #e74c3c;"></div>
+                        <div class="color-option" data-color="#3498db" style="background-color: #3498db;"></div>
+                        <div class="color-option" data-color="#f39c12" style="background-color: #f39c12;"></div>
+                        <div class="color-option" data-color="#9b59b6" style="background-color: #9b59b6;"></div>
+                        <div class="color-option" data-color="#1abc9c" style="background-color: #1abc9c;"></div>
+                        <div class="color-option" data-color="#e67e22" style="background-color: #e67e22;"></div>
+                        <div class="color-option" data-color="#34495e" style="background-color: #34495e;"></div>
+                    </div>
+                    <div class="color-preview" id="selectedColorPreview" style="background-color: #2ecc71;"></div>
+                </div>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn" id="cancelLabel">İptal</button>
+                <button class="btn btn-primary" id="confirmLabel">Etiket Ekle</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.8.1/socket.io.js"></script>
+    <!-- Auth Script -->
+    <script src="js/auth.js"></script>
+    <script src="js/start.js"></script>
+    <script src="js/realtime.js"></script>
+    
+    <!-- Modules -->
+    <script src="js/modules/ImageManager.js"></script>
+    <script src="js/modules/CanvasManager.js"></script>
+    <script src="js/modules/AnnotationManager.js"></script>
+    <script src="js/modules/ExportManager.js"></script>
+    <script src="js/modules/UtilityManager.js"></script>
+    
+    <!-- Main Script -->
+    <!-- Main Script - Restore original architecture -->
+    <script src="js/script.js"></script>
+    
+    <!-- Original architecture restored -->
+    
+    <!-- Debug Script -->
+    <script>
+        console.log('🔍 Etiketleme uygulaması HTML yüklendi');
+        
+        // Auth sistemini kontrol et
+        setTimeout(() => {
+            console.log('🔍 Auth sistemi kontrol ediliyor...');
+            console.log('🔍 window.simpleAuth:', window.simpleAuth);
+            console.log('🔍 window.startManager:', window.startManager);
+            
+            if (window.simpleAuth) {
+                console.log('✅ Auth sistemi yüklendi');
+                console.log('🔍 Mevcut kullanıcı:', window.simpleAuth.getUser());
+                console.log('🔍 Mevcut proje:', window.simpleAuth.getProject());
+            } else {
+                console.error('❌ Auth sistemi yüklenmedi!');
+            }
+            
+            if (window.startManager) {
+                console.log('✅ StartManager yüklendi');
+                // Kullanıcı bilgilerini güncelle
+                window.startManager.updateUserInfo();
+            } else {
+                console.error('❌ StartManager yüklenmedi!');
+            }
+        }, 1000);
+        
+        // Global temizleme fonksiyonu ekle
+        window.clearAllData = function() {
+            console.log('🧹 Manuel temizlik başlatılıyor...');
+            
+            // LabelingTool temizle (ana sistem)
+            if (window.labelingTool) {
+                window.labelingTool.annotations = [];
+                if (window.labelingTool.clearAnnotations) {
+                    window.labelingTool.clearAnnotations();
+                }
+                console.log('✅ LabelingTool temizlendi');
+            } else {
+                console.warn('⚠️ LabelingTool bulunamadı');
+            }
+            
+            // Image Manager cache temizle
+            if (window.imageManager && window.imageManager.clearCache) {
+                window.imageManager.clearCache();
+                console.log('✅ Image Manager cache temizlendi');
+            }
+            
+            console.log('✅ Manuel temizlik tamamlandı');
+        };
+        
+        // Debug function - LabelingTool durumunu kontrol et
+        window.checkLabelingTool = function() {
+            console.log('🔍 LabelingTool Status:');
+            console.log('- window.labelingTool:', !!window.labelingTool);
+            console.log('- LabelingTool class:', typeof LabelingTool !== 'undefined');
+            if (window.labelingTool) {
+                console.log('- Annotations count:', window.labelingTool.annotations?.length || 0);
+                console.log('- Canvas element:', !!window.labelingTool.canvas);
+            }
+        };
+        
+        console.log('💡 Konsola "clearAllData()" yazarak tüm cache\'i temizleyebilirsiniz');
+        
+        // Sayfa yüklendikten sonra StartManager başlatılacak
+        window.addEventListener('load', async () => {
+            console.log('🚀 Labeling app starting...');
+            console.log('✅ StartManager otomatik olarak başlatılacak');
+            
+            // Manuel test
+            setTimeout(() => {
+                console.log('🧪 Manuel test başlatılıyor...');
+                if (window.startManager) {
+                    console.log('✅ StartManager bulundu');
+                    window.startManager.loadProjects();
+                } else {
+                    console.error('❌ StartManager bulunamadı');
+                }
+            }, 2000);
+        });
+    </script>
+</body>
+</html>
