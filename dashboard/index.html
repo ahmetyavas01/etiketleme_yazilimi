@@ -42,9 +42,6 @@
                         <span class="user-role">Yönetici</span>
                     </div>
                 </div>
-                <button id="serverConnectBtn" class="server-connect-btn" title="Server Bağlantısı">
-                    <i class="fas fa-network-wired"></i>
-                </button>
                 <button id="logoutBtn" class="logout-btn">
                     <i class="fas fa-sign-out-alt"></i>
                 </button>
@@ -63,6 +60,7 @@
                     <div id="connectionStatus" class="connection-status">
                         <i class="fas fa-circle"></i>
                         <span>Bağlantı Kuruluyor...</span>
+                        <small id="connectionRetries" style="display: none; color: var(--accent-warning); margin-left: 8px;"></small>
                     </div>
                     <button id="startServerBtn" class="btn btn-primary" style="display: none;">
                         <i class="fas fa-play"></i>
@@ -75,6 +73,12 @@
                     <button id="refreshBtn" class="btn btn-ghost">
                         <i class="fas fa-sync-alt"></i>
                         <span>Yenile</span>
+                    </button>
+                    <button id="serverConnectBtn" class="btn btn-ghost" title="Server Bağlantısı - Sağ tık veya uzun basma ile temizle">
+                        <i class="fas fa-network-wired"></i>
+                    </button>
+                    <button class="theme-toggle" id="themeToggle" title="Tema Değiştir">
+                        <i class="fas fa-moon" id="themeIcon"></i>
                     </button>
                 </div>
             </header>
@@ -106,7 +110,7 @@
                             <div class="project-selector">
                                 <label for="projectSelect">Proje Seçin:</label>
                                 <select id="projectSelect" class="form-input">
-                                    <option value="">Tüm Projeler</option>
+                                    <option value="">Proje Seçin</option>
                                 </select>
                             </div>
                         </div>
@@ -117,12 +121,12 @@
                                     <h3 id="chartTitle">Etiket Dağılımı</h3>
                                 </div>
                                 <div class="chart-layout">
-                                    <div class="chart-container">
-                                        <canvas id="labelChart"></canvas>
+                                    <div class="chart-container" id="chartContainer">
+                                        <canvas id="labelChart" width="400" height="300"></canvas>
                                     </div>
-                                    <div id="projectStats" class="label-list">
-                                        <!-- Etiket listesi buraya yüklenecek -->
-                                    </div>
+                                </div>
+                                <div id="projectStats" class="label-list">
+                                    <!-- Etiket listesi buraya yüklenecek -->
                                 </div>
                             </div>
                         </div>
@@ -137,7 +141,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3>Server Başlat</h3>
-                <button class="modal-close" id="closeServerModal">&times;</button>
+                <button class="modal-close" id="closeServerStartModal">&times;</button>
             </div>
             <div class="server-start-content">
                 <div class="server-status">
@@ -212,20 +216,17 @@
                     <label for="projectFolderPath">Resim Klasörü Seçin</label>
                     <div class="folder-input-container" id="folderDropZone">
                         <input type="file" id="projectFolderPath" class="form-input folder-input" webkitdirectory directory multiple required>
-                        <div class="folder-input-display">
-                            <i class="fas fa-folder-open"></i>
-                            <span class="folder-text">Klasör seçmek için tıklayın veya sürükleyin</span>
-                        </div>
                     </div>
                     <div id="selectedFolderInfo" class="folder-info" style="display: none;">
                         <i class="fas fa-check-circle"></i>
                         <span id="selectedFolderPath"></span>
                     </div>
-                    <div class="form-group" style="margin-top: 1rem;">
-                        <label for="projectFolderPathText">Veya Klasör Yolunu Manuel Girin</label>
-                        <input type="text" id="projectFolderPathText" class="form-input" placeholder="Örnek: /Users/kullanici/Desktop/denemefoto">
-                        <small class="form-help">Klasör seçtiğinizde otomatik olarak tam yol oluşturulur</small>
-                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="projectFolderPathText">Veya Klasör Yolunu Manuel Girin</label>
+                    <input type="text" id="projectFolderPathText" class="form-input" placeholder="Örnek: /Users/kullanici/Desktop/denemefoto">
+                    <small class="form-help">Klasör seçtiğinizde otomatik olarak tam yol oluşturulur</small>
                 </div>
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" id="cancelAddProject">İptal</button>
@@ -286,11 +287,11 @@
                     <h4>Uzak Server Bağlantısı:</h4>
                     <div class="form-group">
                         <label for="serverIP">Server IP Adresi:</label>
-                        <input type="text" id="serverIP" placeholder="192.168.1.100" value="192.168.1.100">
+                        <input type="text" id="serverIP" placeholder="192.168.1.100" value="192.168.1.100" maxlength="15" pattern="[0-9.]*" title="Sadece sayı ve nokta girebilirsiniz">
                     </div>
                     <div class="form-group">
                         <label for="serverPort">Port:</label>
-                        <input type="number" id="serverPort" placeholder="3000" value="3000">
+                        <input type="number" id="serverPort" placeholder="3000" value="3000" min="1" max="65535" title="Port numarası 1-65535 arasında olmalıdır">
                     </div>
                     <button id="connectRemoteServerBtn" class="btn btn-primary">
                         <i class="fas fa-link"></i> Bağlan
@@ -308,5 +309,51 @@
 
     <!-- Scripts -->
     <script src="js/simple-dashboard.js"></script>
+    
+    <!-- Theme Toggle Script -->
+    <script>
+        // Theme Toggle Functionality - Duplicate declaration prevention
+        if (typeof window.themeToggleInitialized === 'undefined') {
+            window.themeToggleInitialized = true;
+            
+            document.addEventListener('DOMContentLoaded', function() {
+                const themeToggle = document.getElementById('themeToggle');
+                const themeIcon = document.getElementById('themeIcon');
+                const body = document.body;
+                
+                if (!themeToggle || !themeIcon) {
+                    console.warn('⚠️ Theme toggle elements not found');
+                    return;
+                }
+                
+                // Load saved theme or default to light
+                const savedTheme = localStorage.getItem('theme') || 'light';
+                body.setAttribute('data-theme', savedTheme);
+                updateThemeIcon(savedTheme);
+                
+                // Theme toggle event listener
+                themeToggle.addEventListener('click', function() {
+                    const currentTheme = body.getAttribute('data-theme');
+                    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+                    
+                    body.setAttribute('data-theme', newTheme);
+                    localStorage.setItem('theme', newTheme);
+                    updateThemeIcon(newTheme);
+                    
+                    console.log(`🎨 Tema değiştirildi: ${newTheme}`);
+                });
+                
+                function updateThemeIcon(theme) {
+                    if (theme === 'dark') {
+                        themeIcon.className = 'fas fa-sun';
+                        themeToggle.title = 'Açık Temaya Geç';
+                    } else {
+                        themeIcon.className = 'fas fa-moon';
+                        themeToggle.title = 'Koyu Temaya Geç';
+                    }
+                }
+            });
+        }
+    </script>
 </body>
 </html>

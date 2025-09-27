@@ -16,23 +16,42 @@ class APIManager {
     
     // Server URL'i dinamik olarak belirle
     getServerURL() {
-        // Önce localStorage'dan kontrol et
+        // 🆕 Önce URL parametresinden kontrol et (dashboard'dan geliyorsa)
+        const urlParams = new URLSearchParams(window.location.search);
+        const serverParam = urlParams.get('server');
+        if (serverParam) {
+            console.log('🔗 URL parametresinden IP alındı:', serverParam);
+            // URL'den gelen IP'yi localStorage'a kaydet
+            localStorage.setItem('serverIP', serverParam);
+            localStorage.setItem('isRemoteServer', 'true');
+            return `http://${serverParam}:3000/api`;
+        }
+        
+        // Sonra localStorage'dan kontrol et
         const savedIP = localStorage.getItem('serverIP');
-        if (savedIP) {
+        if (savedIP && savedIP !== '192.168.1.100') {
+            console.log('🔗 Saved IP kullanılıyor:', savedIP);
             return `http://${savedIP}:3000/api`;
         }
         
         // window.location.hostname kullan
         const hostname = window.location.hostname;
+        const port = window.location.port || '3000';
         
-        // Eğer localhost ise, bilinen IP adresini kullan
+        console.log('🌐 Mevcut hostname:', hostname, 'Port:', port);
+        
+        // Eğer localhost ise, localhost kullan
         if (hostname === 'localhost' || hostname === '127.0.0.1') {
-            // Bilinen IP adresini kullan
-            return `http://10.10.1.22:3000/api`;
+            console.log('🏠 Localhost tespit edildi, localhost kullanılıyor');
+            return `http://localhost:3000/api`;
         }
         
-        // Diğer durumlarda window.location.hostname kullan
-        return `http://${hostname}:3000/api`;
+        // Uzak sunucuda çalışırken, mevcut hostname ve port'u kullan
+        // Eğer port 3000 değilse, 3000'e zorla
+        const serverPort = port === '3000' ? port : '3000';
+        const finalURL = `http://${hostname}:${serverPort}/api`;
+        console.log('🌍 Uzak sunucu URL\'i:', finalURL);
+        return finalURL;
     }
     
     init() {
@@ -203,17 +222,42 @@ class APIManager {
     async makeRequest(url, options = {}, loadingMessage = 'İşlem yapılıyor...') {
         const requestId = Date.now() + Math.random();
         
+        console.log('🌐 API İsteği:', {
+            url: url,
+            method: options.method || 'GET',
+            requestId: requestId
+        });
+        
         try {
             this.showLoading(loadingMessage);
             this.activeRequests.set(requestId, { url, options, startTime: Date.now() });
             
             const response = await this.fetchWithRetry(url, options);
             
+            console.log('📡 API Yanıtı:', {
+                url: url,
+                status: response.status,
+                statusText: response.statusText,
+                ok: response.ok
+            });
+            
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                const errorText = await response.text();
+                console.error('❌ HTTP Hatası:', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    body: errorText
+                });
+                throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
             }
             
             const data = await response.json();
+            
+            console.log('✅ API Başarılı:', {
+                url: url,
+                dataKeys: Object.keys(data || {}),
+                dataSize: JSON.stringify(data).length
+            });
             
             this.activeRequests.delete(requestId);
             this.hideLoading();
@@ -221,6 +265,12 @@ class APIManager {
             return { success: true, data };
             
         } catch (error) {
+            console.error('❌ API Hatası:', {
+                url: url,
+                error: error.message,
+                stack: error.stack
+            });
+            
             this.activeRequests.delete(requestId);
             this.handleError(error);
             return { success: false, error: error.message };
@@ -257,6 +307,13 @@ class APIManager {
     
     // API Methods
     async saveAnnotations(imageId, annotations) {
+        console.log('💾 Etiketler kaydediliyor:', {
+            imageId: imageId,
+            annotationsCount: annotations?.length || 0,
+            baseURL: this.baseURL,
+            fullURL: `${this.baseURL}/images/${imageId}/annotations`
+        });
+        
         const result = await this.makeRequest(
             `${this.baseURL}/images/${imageId}/annotations`,
             {
@@ -266,8 +323,13 @@ class APIManager {
             'Etiketler kaydediliyor...'
         );
         
+        console.log('💾 Kaydetme sonucu:', result);
+        
         if (result.success) {
             this.showToast('Etiketler başarıyla kaydedildi ✓', 'success');
+        } else {
+            console.error('❌ Etiket kaydetme hatası:', result.error);
+            this.showToast('Etiket kaydetme hatası: ' + result.error, 'error');
         }
         
         return result;
@@ -329,6 +391,54 @@ class APIManager {
         
         if (result.success) {
             this.showToast('Etiket silindi ✓', 'success');
+        }
+        
+        return result;
+    }
+
+    async updateAnnotation(annotationId, annotationData) {
+        const result = await this.makeRequest(
+            `${this.baseURL}/annotations/${annotationId}`,
+            {
+                method: 'PUT',
+                body: JSON.stringify({ annotation_data: annotationData })
+            },
+            'Etiket güncelleniyor...'
+        );
+        
+        if (result.success) {
+            this.showToast('Etiket güncellendi ✓', 'success');
+        }
+        
+        return result;
+    }
+
+    async updateWeatherFilter(imageId, filterData) {
+        const result = await this.makeRequest(
+            `${this.baseURL}/images/${imageId}/weather-filter`,
+            {
+                method: 'POST',
+                body: JSON.stringify({ filter_data: filterData })
+            },
+            'Weather filter güncelleniyor...'
+        );
+        
+        if (result.success) {
+            this.showToast('Weather filter güncellendi ✓', 'success');
+        }
+        
+        return result;
+    }
+
+    async deleteWeatherFilter(imageId) {
+        const result = await this.makeRequest(
+            `${this.baseURL}/images/${imageId}/weather-filter`,
+            { method: 'DELETE' },
+            'Weather filter siliniyor...'
+        );
+        
+        if (result.success) {
+            this.showToast('Weather filter silindi ✓', 'success');
         }
         
         return result;

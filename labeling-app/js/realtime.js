@@ -18,9 +18,20 @@ class RealtimeSync {
     
     // Server URL'i dinamik olarak belirle
     getServerURL() {
-        // Önce localStorage'dan kontrol et
+        // 🆕 Önce URL parametresinden kontrol et (dashboard'dan geliyorsa)
+        const urlParams = new URLSearchParams(window.location.search);
+        const serverParam = urlParams.get('server');
+        if (serverParam) {
+            console.log('🔗 Realtime: URL parametresinden IP alındı:', serverParam);
+            // URL'den gelen IP'yi localStorage'a kaydet
+            localStorage.setItem('serverIP', serverParam);
+            localStorage.setItem('isRemoteServer', 'true');
+            return `http://${serverParam}:3000/api`;
+        }
+        
+        // Sonra localStorage'dan kontrol et
         const savedIP = localStorage.getItem('serverIP');
-        if (savedIP) {
+        if (savedIP && savedIP !== '192.168.1.100') {
             return `http://${savedIP}:3000/api`;
         }
         
@@ -39,11 +50,26 @@ class RealtimeSync {
     
     connect() {
         try {
-            // Socket.IO bağlantısı
-            this.socket = io(this.getServerURL().replace('/api', ''));
+            // Socket.IO bağlantısı - timeout ile
+            this.socket = io(this.getServerURL().replace('/api', ''), {
+                timeout: 3000, // 3 saniye timeout
+                forceNew: true,
+                transports: ['websocket', 'polling']
+            });
+            
+            // Bağlantı timeout kontrolü
+            const connectionTimeout = setTimeout(() => {
+                if (this.socket && !this.socket.connected) {
+                    console.log('⏰ Labeling app WebSocket bağlantı timeout');
+                    this.socket.disconnect();
+                    this.updateStatusIndicator('error');
+                    this.showNotification('Bağlantı zaman aşımına uğradı', 'error');
+                }
+            }, 5000); // 5 saniye sonra timeout
             
             // Bağlantı olayları
             this.socket.on('connect', () => {
+                clearTimeout(connectionTimeout);
                 console.log('🔌 WebSocket bağlantısı kuruldu');
                 this.isConnected = true;
                 this.updateStatusIndicator('connected');
@@ -71,10 +97,58 @@ class RealtimeSync {
                 console.error('❌ WebSocket authentication hatası:', error);
                 this.updateStatusIndicator('error');
             });
+
+            // 🆕 Bağlantı hatalarını yakala
+            this.socket.on('connect_error', (error) => {
+                console.error('❌ Labeling app WebSocket bağlantı hatası:', error);
+                this.updateStatusIndicator('error');
+                this.showNotification('Bağlantı hatası oluştu', 'error');
+            });
             
             // Proje güncelleme olayları
             this.socket.on('projectUpdated', (update) => {
                 this.handleProjectUpdate(update);
+            });
+            
+            // 🆕 Etiket güncelleme olayları
+            this.socket.on('labelAdded', (data) => {
+                console.log('📡 Labeling app: Etiket eklendi bildirimi:', data);
+                
+                // 🆕 Etiket isimlerini göster
+                let notificationMessage = `Yeni etiket eklendi: ${data.savedCount} adet`;
+                if (data.labelNames && data.labelNames.length > 0) {
+                    const uniqueLabels = data.labelNames.join(', ');
+                    notificationMessage += `\nEtiketler: ${uniqueLabels}`;
+                }
+                
+                this.showNotification(notificationMessage, 'success');
+                this.handleProjectUpdate(data);
+            });
+            
+            this.socket.on('labelDeleted', (data) => {
+                console.log('📡 Labeling app: Etiket silindi bildirimi:', data);
+                
+                // 🆕 Silinen etiket ismini göster
+                let notificationMessage = `Etiket silindi: ${data.deletedCount} adet`;
+                if (data.deletedLabelName) {
+                    notificationMessage += `\nSilinen etiket: ${data.deletedLabelName}`;
+                }
+                
+                this.showNotification(notificationMessage, 'info');
+                this.handleProjectUpdate(data);
+            });
+            
+            this.socket.on('labelUpdated', (data) => {
+                console.log('📡 Labeling app: Etiket güncellendi bildirimi:', data);
+                this.showNotification(`Etiket güncellendi: ${data.labelName || 'Bilinmeyen'}`, 'info');
+                this.handleProjectUpdate(data);
+            });
+            
+            // 🆕 Hava durumu filtreleri güncelleme
+            this.socket.on('weatherFiltersUpdated', (data) => {
+                console.log('📡 Labeling app: Hava durumu filtreleri güncellendi:', data);
+                this.showNotification('Hava durumu filtreleri güncellendi', 'info');
+                this.handleWeatherFiltersUpdate(data);
             });
             
             // Kullanıcı olayları
@@ -152,6 +226,48 @@ class RealtimeSync {
         
         // Bildirim göster
         this.showNotification(`${update.updatedBy} tarafından güncellendi`, 'success');
+    }
+
+    // 🆕 Hava durumu filtreleri güncelleme işleyicisi
+    handleWeatherFiltersUpdate(data) {
+        console.log('🌤️ Hava durumu filtreleri güncelleniyor:', data);
+        
+        // Kendi güncellemelerini görmezden gel
+        if (data.updatedBy === window.labelingAuth.getUsername()) {
+            return;
+        }
+        
+        // Throttling: Çok hızlı güncellemeleri engelle
+        const now = Date.now();
+        if (now - this.lastUpdateTime < 300) {
+            return;
+        }
+        this.lastUpdateTime = now;
+        
+        // Hava durumu filtrelerini güncelle
+        if (data.weatherFilters) {
+            // Eğer labeling tool'da hava durumu filtreleri varsa güncelle
+            if (this.labelingTool.weatherFilters) {
+                this.labelingTool.weatherFilters = data.weatherFilters;
+            }
+            
+            // Eğer UI'de hava durumu filtreleri gösteriliyorsa güncelle
+            if (this.labelingTool.updateWeatherFiltersUI) {
+                this.labelingTool.updateWeatherFiltersUI(data.weatherFilters);
+            }
+            
+            // Etiket listesini yenile (hava durumu filtrelerine göre)
+            if (this.labelingTool.updateLabelList) {
+                this.labelingTool.updateLabelList();
+            }
+            
+            // Mevcut görüntüyü yeniden çiz
+            if (this.labelingTool.redraw) {
+                this.labelingTool.redraw();
+            }
+            
+            console.log('✅ Hava durumu filtreleri güncellendi');
+        }
     }
     
     createStatusIndicator() {
@@ -266,6 +382,8 @@ class RealtimeSync {
                 font-size: 13px;
                 max-width: 300px;
                 animation: slideIn 0.3s ease-out;
+                white-space: pre-line;
+                line-height: 1.4;
             `;
             
             notification.textContent = message;

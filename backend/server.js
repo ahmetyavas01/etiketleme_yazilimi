@@ -1047,14 +1047,125 @@ app.get('/api/projects/:id/images/:position', async (req, res) => {
     }
 });
 
+// Debug endpoint - Tüm weather filters'ları listele
+app.get('/api/debug/weather-filters', async (req, res) => {
+    try {
+        console.log('🔍 Debug: Tüm weather filters listeleniyor');
+        const allWeatherFilters = await database.allQuery('SELECT * FROM weather_filters ORDER BY created_at DESC');
+        console.log(`🔍 Debug: ${allWeatherFilters.length} adet weather filter bulundu`);
+        
+        const formattedFilters = [];
+        allWeatherFilters.forEach(filter => {
+            try {
+                const filterData = typeof filter.filter_data === 'string' 
+                    ? JSON.parse(filter.filter_data) 
+                    : filter.filter_data;
+                
+                formattedFilters.push({
+                    id: filter.id,
+                    image_id: filter.image_id,
+                    created_at: filter.created_at,
+                    updated_at: filter.updated_at,
+                    filter_data: filterData
+                });
+            } catch (e) {
+                console.error('❌ Debug: Weather filter parse edilemedi:', filter.id);
+            }
+        });
+        
+        res.json({
+            total: allWeatherFilters.length,
+            weatherFilters: formattedFilters
+        });
+    } catch (error) {
+        console.error('❌ Debug weather filters hatası:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Debug endpoint - Tüm annotations'ları listele
+app.get('/api/debug/annotations', async (req, res) => {
+    try {
+        console.log('🔍 Debug: Tüm annotations listeleniyor');
+        const allAnnotations = await database.allQuery('SELECT * FROM annotations ORDER BY created_at DESC');
+        console.log(`🔍 Debug: ${allAnnotations.length} adet annotation bulundu`);
+        
+        const formattedAnnotations = [];
+        allAnnotations.forEach(annotation => {
+            try {
+                const annotationData = typeof annotation.annotation_data === 'string' 
+                    ? JSON.parse(annotation.annotation_data) 
+                    : annotation.annotation_data;
+                
+                formattedAnnotations.push({
+                    id: annotation.id,
+                    image_id: annotation.image_id,
+                    created_at: annotation.created_at,
+                    annotation_data: annotationData
+                });
+            } catch (e) {
+                console.error('❌ Debug: Annotation parse edilemedi:', annotation.id);
+            }
+        });
+        
+        res.json({
+            total: allAnnotations.length,
+            annotations: formattedAnnotations
+        });
+    } catch (error) {
+        console.error('❌ Debug annotations hatası:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Belirli bir fotoğrafın etiketlerini getir (AUTH YOK)
 app.get('/api/images/:id/annotations', async (req, res) => {
     try {
         const imageId = req.params.id;
         console.log(`📋 Fotoğraf ${imageId} etiketleri isteniyor`);
-        const annotations = await database.getImageAnnotations(imageId);
-        console.log(`📋 ${annotations.length} adet etiket bulundu`);
-        res.json(annotations);
+        const dbAnnotations = await database.getImageAnnotations(imageId);
+        console.log(`📋 Veritabanından ${dbAnnotations.length} adet annotation bulundu`);
+        
+        // Annotation data'yı parse et ve frontend formatına çevir
+        const formattedAnnotations = [];
+        
+        dbAnnotations.forEach(dbAnnotation => {
+            console.log(`📋 DB Annotation ID: ${dbAnnotation.id}, Data:`, dbAnnotation.annotation_data);
+            
+            try {
+                // annotation_data'yı parse et
+                const annotationData = typeof dbAnnotation.annotation_data === 'string' 
+                    ? JSON.parse(dbAnnotation.annotation_data) 
+                    : dbAnnotation.annotation_data;
+                
+                console.log(`📋 Parsed annotation data:`, annotationData);
+                
+                // Eğer annotations array'i varsa, her birini ayrı annotation olarak ekle
+                if (annotationData && annotationData.annotations && Array.isArray(annotationData.annotations)) {
+                    annotationData.annotations.forEach(ann => {
+                        formattedAnnotations.push({
+                            ...ann,
+                            dbId: dbAnnotation.id,
+                            created_at: dbAnnotation.created_at,
+                            updated_at: dbAnnotation.updated_at
+                        });
+                    });
+                } else if (annotationData && annotationData.label) {
+                    // Tek annotation formatı
+                    formattedAnnotations.push({
+                        ...annotationData,
+                        dbId: dbAnnotation.id,
+                        created_at: dbAnnotation.created_at,
+                        updated_at: dbAnnotation.updated_at
+                    });
+                }
+            } catch (parseError) {
+                console.error(`❌ Annotation ${dbAnnotation.id} parse edilemedi:`, parseError);
+            }
+        });
+        
+        console.log(`📋 ${formattedAnnotations.length} adet etiket frontend'e gönderiliyor`);
+        res.json(formattedAnnotations);
     } catch (error) {
         console.error('❌ Etiket getirme hatası:', error);
         res.status(500).json({ error: error.message });
@@ -1068,9 +1179,12 @@ app.post('/api/images/:id/annotations', async (req, res) => {
         const { annotations } = req.body; // Sadece annotations array'i al
         
         console.log(`📝 Fotoğraf ${imageId} için ${annotations?.length || 0} etiket kaydediliyor`);
+        console.log('📝 Request body:', JSON.stringify(req.body, null, 2));
+        console.log('📝 Headers:', req.headers);
         
         if (!annotations || !Array.isArray(annotations)) {
             console.log('❌ Annotations array eksik');
+            console.log('❌ Gelen data:', req.body);
             return res.status(400).json({ error: 'Annotations array gerekli' });
         }
 
@@ -1079,14 +1193,19 @@ app.post('/api/images/:id/annotations', async (req, res) => {
         console.log(`🗑️ Fotoğraf ${imageId} mevcut etiketleri silindi`);
 
         let savedCount = 0;
-        // Her etiket için ayrı kayıt oluştur
-        for (const annotation of annotations) {
-            const annotationData = {
-                annotations: [annotation] // Tek etiket olarak kaydet
-            };
-            
-            const annotationId = await database.addImageAnnotation(imageId, annotationData, 1); // user_id = 1
-            savedCount++;
+        // Her etiket için ayrı kaydet - her birinin kendi dbId'si olsun
+        if (annotations.length > 0) {
+            for (let i = 0; i < annotations.length; i++) {
+                const annotation = annotations[i];
+                const annotationData = {
+                    annotations: [annotation] // Tek etiket kaydet
+                };
+                
+                console.log(`💾 Server: Etiket ${i + 1}/${annotations.length} kaydediliyor:`, annotation.label);
+                const annotationId = await database.addImageAnnotation(imageId, annotationData, 1); // user_id = 1
+                console.log(`✅ Server: Etiket kaydedildi, ID: ${annotationId.id}`);
+                savedCount++;
+            }
         }
         
         console.log(`✅ ${savedCount} adet etiket kaydedildi`);
@@ -1094,7 +1213,7 @@ app.post('/api/images/:id/annotations', async (req, res) => {
         // Fotoğrafın is_labeled durumunu güncelle
         try {
             const isLabeled = savedCount > 0 ? 1 : 0;
-            await database.updateImageLabeledStatus(imageId, isLabeled);
+            await database.updateImageLabeledStatus(imageId, isLabeled, 1); // labeledBy = 1
             console.log(`📝 Fotoğraf ${imageId} is_labeled durumu güncellendi: ${isLabeled}`);
         } catch (error) {
             console.error('❌ is_labeled durumu güncellenirken hata:', error);
@@ -1102,12 +1221,22 @@ app.post('/api/images/:id/annotations', async (req, res) => {
         
         // Real-time güncelleme: Sadece gerçek değişiklik olduğunda dashboard'a bildir
         if (savedCount > 0) {
+            // 🆕 Eklenen etiketlerin detaylarını al
+            const addedLabels = [];
+            annotations.forEach(annotation => {
+                if (annotation.label) {
+                    addedLabels.push(annotation.label);
+                }
+            });
+            
             io.emit('labelAdded', {
                 imageId: imageId,
                 savedCount: savedCount,
+                addedLabels: addedLabels, // 🆕 Eklenen etiket isimleri
+                labelNames: [...new Set(addedLabels)], // 🆕 Benzersiz etiket isimleri
                 timestamp: new Date().toISOString()
             });
-            console.log(`📡 Dashboard'a etiket eklendi bildirimi gönderildi: ${savedCount} etiket`);
+            console.log(`📡 Dashboard'a etiket eklendi bildirimi gönderildi: ${savedCount} etiket, isimler: ${addedLabels.join(', ')}`);
         } else {
             console.log('📡 Etiket değişikliği yok, WebSocket bildirimi atlandı');
         }
@@ -1160,26 +1289,56 @@ app.put('/api/annotations/:id', async (req, res) => {
 app.delete('/api/annotations/:id', async (req, res) => {
     try {
         const annotationId = req.params.id;
-        await database.deleteAnnotation(annotationId);
+        console.log(`🗑️ API: Annotation siliniyor, ID: ${annotationId}`);
+        
+        const result = await database.deleteAnnotation(annotationId);
+        
+        // Etiket bulunamadıysa veya zaten silinmişse
+        if (!result.success || result.changes === 0) {
+            return res.status(404).json({ error: 'Etiket bulunamadı veya zaten silinmiş' });
+        }
+
+        // Silinen etiket ismini al (database'den geldi)
+        const deletedLabelName = result.deletedLabelName;
+
+        // 🆕 Real-time güncelleme: Etiket silindi bildirimi
+        io.emit('labelDeleted', {
+            annotationId: annotationId,
+            deletedCount: result.changes,
+            deletedLabelName: deletedLabelName, // 🆕 Silinen etiket ismi
+            timestamp: new Date().toISOString()
+        });
+        console.log(`📡 Dashboard'a etiket silindi bildirimi gönderildi: ${result.changes} etiket, isim: ${deletedLabelName || 'Bilinmeyen'}`);
         
         res.json({
             success: true,
-            message: 'Etiket silindi'
+            message: 'Etiket silindi',
+            changes: result.changes
         });
     } catch (error) {
+        console.error('❌ API: Annotation silme hatası:', error);
         res.status(500).json({ error: error.message });
     }
 });
-
 // Belirli bir fotoğrafın tüm etiketlerini sil
 app.delete('/api/images/:id/annotations', async (req, res) => {
     try {
         const imageId = req.params.id;
-        await database.deleteImageAnnotations(imageId);
+        const deletedCount = await database.deleteImageAnnotations(imageId);
+        
+        // 🆕 Real-time güncelleme: Tüm etiketler silindi bildirimi
+        io.emit('labelDeleted', {
+            imageId: imageId,
+            deletedCount: deletedCount || 0,
+            timestamp: new Date().toISOString(),
+            allAnnotations: true
+        });
+        console.log(`📡 Dashboard'a tüm etiketler silindi bildirimi gönderildi: ${deletedCount || 0} etiket`);
         
         res.json({
             success: true,
-            message: 'Tüm etiketler silindi'
+            message: 'Tüm etiketler silindi',
+            deletedCount: deletedCount || 0
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -1236,10 +1395,11 @@ app.post('/api/images/:id/weather-filter', async (req, res) => {
         
         console.log(`✅ Weather filter kaydedildi, ID: ${filterId}`);
         
-        // Real-time güncelleme: Dashboard'a bildir
-        io.emit('weatherFilterUpdated', {
+        // 🆕 Real-time güncelleme: Dashboard'a bildir
+        io.emit('weatherFiltersUpdated', {
             imageId: imageId,
             filterData: actualFilterData,
+            weatherFilters: actualFilterData, // Daha uyumlu format
             timestamp: new Date().toISOString()
         });
         console.log(`📡 Dashboard'a weather filter güncellendi bildirimi gönderildi`);
@@ -1264,6 +1424,15 @@ app.delete('/api/images/:id/weather-filter', async (req, res) => {
         const deletedCount = await database.deleteImageWeatherFilter(imageId);
         
         console.log(`✅ ${deletedCount} weather filter silindi`);
+
+        // 🆕 Real-time güncelleme: Weather filter silindi bildirimi
+        io.emit('weatherFiltersUpdated', {
+            imageId: imageId,
+            deleted: true,
+            deletedCount: deletedCount,
+            timestamp: new Date().toISOString()
+        });
+        console.log(`📡 Dashboard'a weather filter silindi bildirimi gönderildi`);
         
         res.json({
             success: true,
@@ -1301,6 +1470,15 @@ app.post('/api/projects/:id/favorite-labels', async (req, res) => {
         });
     } catch (error) {
         console.error('❌ Favori etiket ekleme hatası:', error);
+        
+        // UNIQUE constraint hatası kontrolü
+        if (error.code === 'SQLITE_CONSTRAINT' && error.message.includes('UNIQUE constraint failed')) {
+            return res.status(409).json({ 
+                error: 'Bu etiket zaten favorilerde!',
+                code: 'DUPLICATE_FAVORITE'
+            });
+        }
+        
         res.status(500).json({ error: error.message });
     }
 });

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -69,9 +69,34 @@ class EtiketlemeApp {
         });
     }
 
+    async checkPort(port) {
+        return new Promise((resolve) => {
+            const net = require('net');
+            const server = net.createServer();
+            
+            server.listen(port, () => {
+                server.once('close', () => {
+                    resolve(false); // Port boş
+                });
+                server.close();
+            });
+            
+            server.on('error', () => {
+                resolve(true); // Port kullanımda
+            });
+        });
+    }
+
     async startBackend() {
         try {
             console.log('🚀 Backend server otomatik başlatılıyor...');
+            
+            // Önce port 3000'in kullanımda olup olmadığını kontrol et
+            const portInUse = await this.checkPort(3000);
+            if (portInUse) {
+                console.log('ℹ️ Port 3000 zaten kullanımda, backend çalışıyor olabilir');
+                return true;
+            }
             
             const isPackaged = process.env.NODE_ENV === 'production' || process.env.APP_ENV === 'production';
             let backendPath, cwd, nodeExecutable;
@@ -81,15 +106,29 @@ class EtiketlemeApp {
                 backendPath = path.join(resourcesPath, 'backend', 'server.js');
                 cwd = path.join(resourcesPath, 'backend');
                 
+                // Windows'ta Node.js executable'ı bul
                 if (process.platform === 'win32') {
-                    nodeExecutable = path.join(resourcesPath, 'node.exe');
+                    // Önce resources'ta ara
+                    const nodeInResources = path.join(resourcesPath, 'node.exe');
+                    if (fs.existsSync(nodeInResources)) {
+                        nodeExecutable = nodeInResources;
+                    } else {
+                        // PATH'te ara
+                        nodeExecutable = 'node.exe';
+                    }
                 } else {
                     nodeExecutable = path.join(resourcesPath, 'node');
                 }
             } else {
                 backendPath = path.join(__dirname, 'backend', 'server.js');
                 cwd = path.join(__dirname, 'backend');
-                nodeExecutable = process.execPath;
+                
+                if (process.platform === 'win32') {
+                    // Windows'ta node'u PATH'ten bul
+                    nodeExecutable = 'node.exe';
+                } else {
+                    nodeExecutable = process.execPath;
+                }
             }
             
             // Path'lerin var olduğunu kontrol et
@@ -111,11 +150,27 @@ class EtiketlemeApp {
             await this.ensureBackendDependencies(cwd, nodeExecutable);
             
             // Backend'i başlat
-            this.backendProcess = spawn(nodeExecutable, [backendPath], {
+            const spawnOptions = {
                 cwd: cwd,
                 stdio: ['ignore', 'pipe', 'pipe'],
-                detached: false
-            });
+                detached: false,
+                env: { 
+                    ...process.env, 
+                    NODE_ENV: 'production',
+                    PORT: this.serverPort.toString()
+                },
+                // Windows'ta admin yetkisi gerektirmeyen ayarlar
+                windowsHide: true,
+                shell: false
+            };
+            
+            // Windows'ta shell kullan (admin yetkisi gerektirmez)
+            if (process.platform === 'win32') {
+                spawnOptions.shell = true;
+                spawnOptions.windowsHide = true;
+            }
+            
+            this.backendProcess = spawn(nodeExecutable, [backendPath], spawnOptions);
             
             this.backendProcess.stdout.on('data', (data) => {
                 console.log('Backend:', data.toString());
@@ -129,6 +184,19 @@ class EtiketlemeApp {
                 console.log(`Backend process exited with code ${code}`);
                 this.isBackendRunning = false;
                 this.backendProcess = null;
+            });
+            
+            this.backendProcess.on('error', (error) => {
+                console.error('Backend spawn error:', error);
+                this.isBackendRunning = false;
+                
+                // Windows'ta yaygın hataları handle et
+                if (error.code === 'ENOENT') {
+                    console.error('❌ Node.js bulunamadı veya PATH\'te değil');
+                    if (process.platform === 'win32') {
+                        console.error('💡 Windows için: Node.js\'i PATH\'e ekleyin veya tam path kullanın');
+                    }
+                }
             });
             
             // Backend'in başlamasını bekle
@@ -174,10 +242,12 @@ class EtiketlemeApp {
             console.log('📦 Backend dependencies yükleniyor...');
             
             const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-            const installProcess = spawn(npmCommand, ['install'], {
+            const installArgs = ['install', '--production', '--no-optional'];
+            const installProcess = spawn(npmCommand, installArgs, {
                 cwd: cwd,
                 stdio: ['ignore', 'pipe', 'pipe'],
-                shell: process.platform === 'win32'
+                shell: process.platform === 'win32',
+                env: { ...process.env, NODE_ENV: 'production' }
             });
             
             installProcess.stdout.on('data', (data) => {
@@ -363,8 +433,13 @@ class EtiketlemeApp {
     async onReady() {
         console.log('🚀 Etiketleme Sistemi başlatılıyor...');
         
-        // Ana pencereyi oluştur
-        this.createWindow();
+        // Menü çubuğunu kaldır (EXE uygulamasında)
+        Menu.setApplicationMenu(null);
+        
+        // Ana pencereyi oluştur (sadece yoksa)
+        if (this.mainWindow === null) {
+            this.createWindow();
+        }
         
         // IPC handler'ları kur
         this.setupIPC();

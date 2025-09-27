@@ -300,25 +300,53 @@ class SimpleLabelingSystem {
         }
         
         try {
-            console.log('💾 Etiketler kaydediliyor...', this.annotations.length, 'adet');
+            console.log('💾 Simple Labeling: Etiketler kaydediliyor...', this.annotations.length, 'adet');
             
             const imageId = window.imageManager.currentImage.id;
-            const response = await fetch(`http://${window.location.hostname}:3000/api/images/${imageId}/annotations`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ annotations: this.annotations })
-            });
             
-            if (response.ok) {
-                const result = await response.json();
-                console.log('✅ Etiketler kaydedildi:', result.saved_count);
-                this.showMessage('Etiketler kaydedildi ✓', 'success');
+            // APIManager kullan
+            if (window.apiManager) {
+                console.log('💾 Simple Labeling: APIManager ile kaydetme yapılıyor');
+                const result = await window.apiManager.saveAnnotations(imageId, this.annotations);
+                
+                if (result.success) {
+                    console.log('✅ Simple Labeling: Etiketler kaydedildi');
+                    this.showMessage('Etiketler kaydedildi ✓', 'success');
+                } else {
+                    throw new Error(result.error || 'Kaydetme başarısız');
+                }
             } else {
-                throw new Error('Kaydetme başarısız');
+                // Fallback: Doğrudan fetch kullan
+                console.log('💾 Simple Labeling: Fallback fetch ile kaydetme yapılıyor');
+                
+                // URL'i doğru şekilde oluştur
+                const hostname = window.location.hostname;
+                const port = window.location.port || '3000';
+                const baseURL = `http://${hostname}:${port}/api`;
+                
+                console.log('🌐 Simple Labeling: Base URL:', baseURL);
+                
+                const response = await fetch(`${baseURL}/images/${imageId}/annotations`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ annotations: this.annotations })
+                });
+                
+                console.log('📡 Simple Labeling: Response status:', response.status);
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('✅ Simple Labeling: Etiketler kaydedildi:', result.saved_count);
+                    this.showMessage('Etiketler kaydedildi ✓', 'success');
+                } else {
+                    const errorText = await response.text();
+                    console.error('❌ Simple Labeling: HTTP Error:', response.status, errorText);
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
             }
         } catch (error) {
-            console.error('❌ Kaydetme hatası:', error);
-            this.showMessage('Kaydetme hatası ✗', 'error');
+            console.error('❌ Simple Labeling: Kaydetme hatası:', error);
+            this.showMessage('Kaydetme hatası: ' + error.message, 'error');
         }
     }
     
@@ -331,29 +359,45 @@ class SimpleLabelingSystem {
         try {
             console.log('📋 Simple System - Etiketler yükleniyor...', imageId);
             
-            const response = await fetch(`http://${window.location.hostname}:3000/api/images/${imageId}/annotations`);
+            // URL'i doğru şekilde oluştur
+            const hostname = window.location.hostname;
+            const port = window.location.port || '3000';
+            const baseURL = `http://${hostname}:${port}/api`;
+            
+            console.log('🌐 Simple System - Base URL:', baseURL);
+            
+            const response = await fetch(`${baseURL}/images/${imageId}/annotations`);
+            
+            console.log('📡 Simple System - Response status:', response.status);
             
             if (response.ok) {
-                const dbAnnotations = await response.json();
+                const annotations = await response.json();
+                console.log('📋 Simple System - Yüklenen etiketler:', annotations.length, 'adet');
+                console.log('📋 Simple System - Annotation detayları:', annotations);
+                
                 this.annotations = [];
                 
-                dbAnnotations.forEach(dbAnnotation => {
-                    const annotationData = dbAnnotation.annotation_data;
-                    if (annotationData && annotationData.annotations) {
-                        annotationData.annotations.forEach(ann => {
-                            // Validation
-                            if (this.validateAnnotation(ann)) {
-                                ann.dbId = dbAnnotation.id;
-                                this.annotations.push(ann);
-                            }
+                // Artık backend'den direkt formatlanmış geliyor
+                annotations.forEach(annotation => {
+                    console.log('📋 Simple System - Annotation işleniyor:', annotation);
+                    
+                    // Validation
+                    if (this.validateAnnotation(annotation)) {
+                        this.annotations.push({
+                            ...annotation,
+                            dbId: annotation.dbId || annotation.id
                         });
+                        console.log('✅ Simple System - Annotation eklendi:', annotation.label);
+                    } else {
+                        console.warn('⚠️ Simple System - Geçersiz annotation atlandı:', annotation);
                     }
                 });
                 
                 console.log('✅ Simple System - Etiketler yüklendi:', this.annotations.length, 'adet');
                 this.redraw();
             } else {
-                console.log('ℹ️ Bu fotoğraf için etiket bulunamadı');
+                const errorText = await response.text();
+                console.log('ℹ️ Simple System - Bu fotoğraf için etiket bulunamadı:', response.status, errorText);
                 this.annotations = [];
                 this.redraw();
             }
@@ -365,13 +409,26 @@ class SimpleLabelingSystem {
     }
     
     validateAnnotation(annotation) {
-        return annotation &&
+        const isValid = annotation &&
+               annotation.label &&
                typeof annotation.x === 'number' &&
                typeof annotation.y === 'number' &&
                typeof annotation.width === 'number' &&
                typeof annotation.height === 'number' &&
                annotation.width > 0 &&
                annotation.height > 0;
+        
+        if (!isValid) {
+            console.warn('⚠️ Simple System - Geçersiz annotation:', {
+                hasLabel: !!annotation?.label,
+                x: annotation?.x,
+                y: annotation?.y,
+                width: annotation?.width,
+                height: annotation?.height
+            });
+        }
+        
+        return isValid;
     }
     
     // ImageManager ile uyumlu API

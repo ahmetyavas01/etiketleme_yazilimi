@@ -1,5 +1,7 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const os = require('os');
+const fs = require('fs');
 
 class DatabaseManager {
     constructor() {
@@ -8,7 +10,10 @@ class DatabaseManager {
     }
 
     init() {
+        // Database dosyasını backend klasöründe kullan
         const dbPath = path.join(__dirname, 'database.sqlite');
+        
+        console.log('📁 Database path:', dbPath);
         
         this.db = new sqlite3.Database(dbPath, (err) => {
             if (err) {
@@ -95,6 +100,16 @@ class DatabaseManager {
                 height INTEGER NOT NULL,
                 confidence REAL DEFAULT 1.0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
+            )`);
+
+            // Weather filters tablosu
+            this.db.run(`CREATE TABLE IF NOT EXISTS weather_filters (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                image_id INTEGER NOT NULL,
+                filter_data TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
             )`);
 
@@ -264,8 +279,11 @@ class DatabaseManager {
 
     async getImageWeatherFilter(imageId) {
         try {
-            return await this.getQuery('SELECT * FROM weather_filters WHERE image_id = ?', [imageId]);
+            const result = await this.getQuery('SELECT * FROM weather_filters WHERE image_id = ? ORDER BY updated_at DESC LIMIT 1', [imageId]);
+            console.log(`🔍 Database'den weather filter sorgusu: imageId=${imageId}, result=`, result);
+            return result;
         } catch (err) {
+            console.error('❌ Weather filter database hatası:', err);
             throw err;
         }
     }
@@ -287,32 +305,101 @@ class DatabaseManager {
         }
     }
 
+    async deleteAnnotation(annotationId) {
+        try {
+            console.log(`🗑️ Database: Annotation siliniyor, ID: ${annotationId}`);
+            
+            // Önce annotation'ı bul - id ile ara
+            const annotation = await this.getQuery('SELECT * FROM annotations WHERE id = ?', [annotationId]);
+            if (!annotation) {
+                console.log(`❌ Database: Annotation bulunamadı, ID: ${annotationId}`);
+                return { success: false, changes: 0, deletedLabelName: null };
+            }
+            
+            console.log(`🔍 Database: Bulunan annotation:`, annotation);
+            
+            // Etiket ismini çıkar (annotation_data'dan)
+            let deletedLabelName = null;
+            try {
+                const annotationData = JSON.parse(annotation.annotation_data);
+                if (annotationData.annotations && annotationData.annotations.length > 0) {
+                    deletedLabelName = annotationData.annotations[0].label;
+                }
+            } catch (error) {
+                console.log('⚠️ Annotation data parse edilemedi:', error.message);
+            }
+            
+            // Annotation'ı sil - id ile sil
+            const result = await this.runQuery('DELETE FROM annotations WHERE id = ?', [annotationId]);
+            console.log(`✅ Database: Annotation silindi, etkilenen satır: ${result.changes}`);
+            
+            // Eğer 1'den fazla satır silindiyse, bu bir sorun
+            if (result.changes > 1) {
+                console.warn(`⚠️ Database: ${result.changes} adet annotation silindi! Bu beklenmeyen bir durum.`);
+            }
+            
+            return { 
+                success: true, 
+                changes: result.changes, 
+                deletedLabelName: deletedLabelName 
+            };
+        } catch (err) {
+            console.error(`❌ Database: Annotation silme hatası:`, err);
+            throw err;
+        }
+    }
+
     async updateImageWeatherFilter(imageId, filterData) {
         try {
+            console.log(`💾 Database: Weather filter güncelleniyor, imageId: ${imageId}`);
+            console.log(`💾 Database: Filter data:`, filterData);
+            
             const existing = await this.getQuery('SELECT * FROM weather_filters WHERE image_id = ?', [imageId]);
             if (existing) {
+                console.log(`💾 Database: Mevcut weather filter güncelleniyor, ID: ${existing.id}`);
                 await this.runQuery('UPDATE weather_filters SET filter_data = ?, updated_at = CURRENT_TIMESTAMP WHERE image_id = ?', [JSON.stringify(filterData), imageId]);
             } else {
+                console.log(`💾 Database: Yeni weather filter oluşturuluyor`);
                 await this.runQuery('INSERT INTO weather_filters (image_id, filter_data, created_at, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)', [imageId, JSON.stringify(filterData)]);
             }
+            console.log(`✅ Database: Weather filter başarıyla kaydedildi`);
             return { success: true };
         } catch (err) {
+            console.error(`❌ Database: Weather filter kaydetme hatası:`, err);
+            throw err;
+        }
+    }
+
+    async deleteImageWeatherFilter(imageId) {
+        try {
+            console.log(`🗑️ Database: Weather filter siliniyor, imageId: ${imageId}`);
+            const result = await this.runQuery('DELETE FROM weather_filters WHERE image_id = ?', [imageId]);
+            console.log(`✅ Database: ${result.changes} weather filter silindi`);
+            return result.changes;
+        } catch (err) {
+            console.error(`❌ Database: Weather filter silme hatası:`, err);
             throw err;
         }
     }
 
     async saveImageAnnotations(imageId, annotations) {
         try {
+            console.log(`💾 Database: ${annotations.length} etiket kaydediliyor, imageId: ${imageId}`);
+            
             // Önce mevcut etiketleri sil
             await this.deleteImageAnnotations(imageId);
+            console.log(`🗑️ Database: Mevcut etiketler silindi, imageId: ${imageId}`);
             
             // Yeni etiketleri kaydet
             for (const annotation of annotations) {
+                console.log(`💾 Database: Etiket kaydediliyor:`, annotation);
                 await this.runQuery('INSERT INTO annotations (image_id, annotation_data, created_by, created_at, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)', [imageId, JSON.stringify(annotation), 1]);
             }
             
+            console.log(`✅ Database: ${annotations.length} etiket başarıyla kaydedildi`);
             return { success: true };
         } catch (err) {
+            console.error(`❌ Database: Etiket kaydetme hatası:`, err);
             throw err;
         }
     }
@@ -328,9 +415,15 @@ class DatabaseManager {
 
     async addImageAnnotation(imageId, annotationData, createdBy = 1) {
         try {
+            console.log(`💾 Database: addImageAnnotation çağrıldı, imageId: ${imageId}, createdBy: ${createdBy}`);
+            console.log(`💾 Database: annotationData:`, annotationData);
+            
             const result = await this.runQuery('INSERT INTO annotations (image_id, annotation_data, created_by, created_at, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)', [imageId, JSON.stringify(annotationData), createdBy]);
+            
+            console.log(`✅ Database: addImageAnnotation başarılı, ID: ${result.id}`);
             return { id: result.id, success: true };
         } catch (err) {
+            console.error(`❌ Database: addImageAnnotation hatası:`, err);
             throw err;
         }
     }
@@ -563,7 +656,7 @@ class DatabaseManager {
 
     async getImageAnnotations(imageId) {
         try {
-            return await this.allQuery('SELECT * FROM labels WHERE image_id = ? ORDER BY created_at ASC', [imageId]);
+            return await this.allQuery('SELECT * FROM annotations WHERE image_id = ? ORDER BY created_at ASC', [imageId]);
         } catch (err) {
             throw err;
         }

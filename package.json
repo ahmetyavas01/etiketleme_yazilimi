@@ -1,23 +1,37 @@
 {
-  "name": "etiketleme-sistemi-v2",
-  "version": "2.0.1",
+  "name": "etiketleme-sistemi-v3",
+  "version": "3.0.0",
   "description": "Etiketleme sistemi Electron uygulaması",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "start:win": "electron . --platform=win32",
     "dev": "concurrently \"npm run build:watch\" \"wait-on dist/main.js && electron .\"",
+    "dev:win": "concurrently \"npm run build:watch\" \"wait-on dist/main.js && electron . --platform=win32\"",
     "build": "tsc && npm run copy-assets",
     "build:watch": "tsc --watch",
     "copy-assets": "cp -r dashboard dist/ && cp -r labeling-app dist/ && cp -r backend dist/",
+    "copy-assets:win": "xcopy dashboard dist\\dashboard\\ /E /I /Y && xcopy labeling-app dist\\labeling-app\\ /E /I /Y && xcopy backend dist\\backend\\ /E /I /Y",
     "pack": "electron-builder",
+    "pack:win": "electron-builder --win",
     "dist": "npm run build && electron-builder",
+    "dist:win": "electron-builder --win --x64",
     "build:exe": "node build-exe.js",
+    "build:exe:win": "node build-exe.js --platform=win32",
     "build:dmg": "node build-dmg.js",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps",
+    "postinstall:win": "electron-builder install-app-deps --platform=win32",
+    "backend:install": "cd backend && npm install",
+    "backend:start": "cd backend && npm start",
+    "backend:dev": "cd backend && npm run dev",
+    "clean": "rimraf dist dist-electron node_modules/.cache",
+    "clean:win": "rmdir /s /q dist && rmdir /s /q dist-electron && rmdir /s /q node_modules\\.cache",
+    "test:win": "echo Windows test başarılı",
+    "check:deps": "npm ls",
+    "check:deps:win": "npm ls --depth=0"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
-    "better-sqlite3": "^8.7.0",
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2",
@@ -63,10 +77,6 @@
         "to": "backend"
       },
       {
-        "from": "backend/node_modules",
-        "to": "backend/node_modules"
-      },
-      {
         "from": "dashboard",
         "to": "dashboard"
       },
@@ -94,13 +104,57 @@
       ]
     },
     "win": {
-      "target": "nsis",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "requestedExecutionLevel": "asInvoker",
+      "asarUnpack": [
+        "**/node_modules/sqlite3/**/*",
+        "**/node_modules/better-sqlite3/**/*",
+        "**/node_modules/sharp/**/*",
+        "**/node_modules/bcryptjs/**/*",
+        "**/node_modules/cors/**/*",
+        "**/node_modules/express/**/*",
+        "**/node_modules/jsonwebtoken/**/*",
+        "**/node_modules/multer/**/*",
+        "**/node_modules/socket.io/**/*"
+      ],
       "extraResources": [
+        {
+          "from": "backend/package.json",
+          "to": "backend/package.json"
+        },
+        {
+          "from": "start-backend.bat",
+          "to": "start-backend.bat"
+        },
         {
           "from": "node_modules/node/bin/node.exe",
           "to": "node.exe"
         }
-      ]
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "publisherName": "Etiketleme Sistemi",
+      "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Etiketleme Sistemi",
+      "uninstallDisplayName": "Etiketleme Sistemi v3.0.0",
+      "runAfterFinish": false,
+      "deleteAppDataOnUninstall": false,
+      "perMachine": false
     },
     "linux": {
       "target": "AppImage"

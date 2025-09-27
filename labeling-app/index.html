@@ -76,6 +76,8 @@
             overflow: auto;
             scrollbar-width: thin;
             scrollbar-color: var(--border-primary) transparent;
+            display: flex;
+            flex-direction: column;
         }
         .sidebar::-webkit-scrollbar {
             width: 6px;
@@ -116,11 +118,41 @@
 
         canvas {
             display: block;
-            cursor: crosshair;
+            cursor: default;
             width: 100% !important;
             height: 100% !important;
             min-height: 600px;
             outline: none;
+        }
+
+        /* İmleç Sistemi */
+        .canvas-container {
+            cursor: default;
+        }
+
+        /* Canvas - Normal durumda crosshair */
+        .canvas-container.canvas-mode {
+            cursor: crosshair;
+        }
+
+        /* Etiket oluşturma - Plus imleci */
+        .canvas-container.creating-annotation {
+            cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="%233b82f6" stroke="white" stroke-width="2"/><path d="M10 6v8M6 10h8" stroke="white" stroke-width="2" stroke-linecap="round"/></svg>') 10 10, crosshair;
+        }
+
+        /* Etiket focus - Move imleci */
+        .canvas-container.focusing-annotation {
+            cursor: move;
+        }
+
+        /* Etiket resize - Resize imleci */
+        .canvas-container.resizing-annotation {
+            cursor: nw-resize;
+        }
+
+        /* Etiket hover - Pointer imleci */
+        .canvas-container.hovering-annotation {
+            cursor: pointer;
         }
 
         /* Full-Screen Crosshair Cursor */
@@ -2034,6 +2066,7 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: var(--spacing-sm);
+            padding: var(--spacing-xs) 0;
         }
 
         .info-item:last-child {
@@ -2044,6 +2077,7 @@
             font-weight: 600;
             color: var(--text-secondary);
             font-size: 0.9rem;
+            flex: 1;
         }
 
         .info-value {
@@ -2051,6 +2085,7 @@
             color: var(--text-primary);
             font-size: 0.9rem;
             text-align: right;
+            flex: 1;
             max-width: 150px;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -2603,6 +2638,7 @@
             font-weight: 500;
             color: var(--text-primary);
         }
+
     </style>
 </head>
 <body>
@@ -2622,18 +2658,14 @@
             </div>
             <div class="user-info-display">
                 <div class="info-item">
-                    <span class="info-label">Kullanıcı:</span>
+                    <span class="info-label">Kullanıcı Adı:</span>
                     <span class="info-value" id="currentUser">-</span>
                 </div>
                 <div class="info-item">
-                    <span class="info-label">Proje:</span>
+                    <span class="info-label">Aktif Proje:</span>
                     <span class="info-value" id="projectName">-</span>
                 </div>
             </div>
-            <button class="btn" id="logoutBtn">
-                <i class="fas fa-sign-out-alt"></i>
-                Oturumu Kapat
-            </button>
         </div>
 
         <!-- Dashboard Navigation Section -->
@@ -2852,10 +2884,6 @@
                 <i class="fas fa-download"></i>
                 Dışa Aktar
             </div>
-            <button class="btn" id="yoloExport" style="background: #e74c3c; color: white;">
-                <i class="fas fa-database"></i>
-                YOLO Çıktısı
-            </button>
             <button class="btn" id="exportData">
                 <i class="fas fa-file-export"></i>
                 Dışa Aktar Seçenekleri
@@ -2871,6 +2899,18 @@
             <button class="btn" id="showShortcuts">
                 <i class="fas fa-keyboard"></i>
                 Kısayollar
+            </button>
+        </div>
+
+        <!-- Dashboard & Logout Section - En Alt -->
+        <div class="section" style="margin-top: auto;">
+            <button class="btn btn-primary" id="sidebarDashboardBtn" style="width: 100%; margin-bottom: 8px;">
+                <i class="fas fa-tachometer-alt"></i>
+                Dashboard'a Dön
+            </button>
+            <button class="btn btn-danger" id="logoutBtn" style="width: 100%;">
+                <i class="fas fa-sign-out-alt"></i>
+                Oturumu Kapat
             </button>
         </div>
             </div>
@@ -2920,7 +2960,7 @@
                     </select>
                 </div>
                 <div class="modal-buttons">
-                    <button type="button" class="btn" id="logoutBtn">Çıkış</button>
+                    <button type="button" class="btn" id="dashboardBtn">Dashboard'a Dön</button>
                     <button type="submit" class="btn btn-primary">Başla</button>
                 </div>
             </form>
@@ -3114,6 +3154,7 @@ model.export(format='tflite')  # Android</pre>
         </div>
     </div>
 
+
         <!-- Shortcuts Modal -->
         <div id="shortcutsModal" class="modal">
             <div class="modal-content shortcuts-modal-content">
@@ -3175,6 +3216,7 @@ model.export(format='tflite')  # Android</pre>
             </div>
         </div>
 
+
         <!-- Toast Container -->
         <div class="toast-container" id="toastContainer"></div>
     </div> <!-- End of main-application -->
@@ -3231,90 +3273,86 @@ model.export(format='tflite')  # Android</pre>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.8.1/socket.io.js"></script>
     <!-- Auth Script -->
     <script src="js/auth.js"></script>
-    <script src="js/start.js"></script>
     <script src="js/realtime.js"></script>
     
-    <!-- Modules -->
-    <script src="js/modules/ImageManager.js"></script>
-    <script src="js/modules/CanvasManager.js"></script>
-    <script src="js/modules/AnnotationManager.js"></script>
-    <script src="js/modules/ExportManager.js"></script>
+    <!-- Core Modules (No Dependencies) -->
+    <script src="js/modules/APIManager.js"></script>
     <script src="js/modules/UtilityManager.js"></script>
     
-    <!-- Main Script -->
-    <!-- Main Script - Restore original architecture -->
+    <!-- Canvas & Annotation Modules -->
+    <script src="js/modules/CanvasManager.js"></script>
+    <script src="js/modules/AnnotationManager.js"></script>
+    
+    <!-- Export Module -->
+    <script src="js/modules/ExportManager.js"></script>
+    
+    <!-- Image Manager (Depends on LabelingTool) -->
+    <script src="js/modules/ImageManager.js"></script>
+    
+    <!-- Start Manager -->
+    <script src="js/start.js"></script>
+    
+    <!-- Main Script (LabelingTool) - Load Last -->
     <script src="js/script.js"></script>
     
     <!-- Original architecture restored -->
     
-    <!-- Debug Script -->
+    <!-- Simplified Script -->
     <script>
-        console.log('🔍 Etiketleme uygulaması HTML yüklendi');
-        
-        // Auth sistemini kontrol et
-        setTimeout(() => {
-            console.log('🔍 Auth sistemi kontrol ediliyor...');
-            console.log('🔍 window.simpleAuth:', window.simpleAuth);
-            console.log('🔍 window.startManager:', window.startManager);
-            
-            if (window.simpleAuth) {
-                console.log('✅ Auth sistemi yüklendi');
-                console.log('🔍 Mevcut kullanıcı:', window.simpleAuth.getUser());
-                console.log('🔍 Mevcut proje:', window.simpleAuth.getProject());
-            } else {
-                console.error('❌ Auth sistemi yüklenmedi!');
-            }
-            
-            if (window.startManager) {
-                console.log('✅ StartManager yüklendi');
-                // Kullanıcı bilgilerini güncelle
-                window.startManager.updateUserInfo();
-            } else {
-                console.error('❌ StartManager yüklenmedi!');
-            }
-        }, 1000);
-        
-        // Global temizleme fonksiyonu ekle
-        window.clearAllData = function() {
-            console.log('🧹 Manuel temizlik başlatılıyor...');
-            
-            // LabelingTool temizle (ana sistem)
-            if (window.labelingTool) {
-                window.labelingTool.annotations = [];
-                if (window.labelingTool.clearAnnotations) {
-                    window.labelingTool.clearAnnotations();
-                }
-                console.log('✅ LabelingTool temizlendi');
-            } else {
-                console.warn('⚠️ LabelingTool bulunamadı');
-            }
-            
-            // Image Manager cache temizle
-            if (window.imageManager && window.imageManager.clearCache) {
-                window.imageManager.clearCache();
-                console.log('✅ Image Manager cache temizlendi');
-            }
-            
-            console.log('✅ Manuel temizlik tamamlandı');
-        };
-        
-        // Debug function - LabelingTool durumunu kontrol et
-        window.checkLabelingTool = function() {
-            console.log('🔍 LabelingTool Status:');
-            console.log('- window.labelingTool:', !!window.labelingTool);
-            console.log('- LabelingTool class:', typeof LabelingTool !== 'undefined');
-            if (window.labelingTool) {
-                console.log('- Annotations count:', window.labelingTool.annotations?.length || 0);
-                console.log('- Canvas element:', !!window.labelingTool.canvas);
-            }
-        };
-        
-        console.log('💡 Konsola "clearAllData()" yazarak tüm cache\'i temizleyebilirsiniz');
+        console.log('🚀 Labeling app starting...');
         
         // Sayfa yüklendikten sonra StartManager başlatılacak
         window.addEventListener('load', async () => {
-            console.log('🚀 Labeling app starting...');
             console.log('✅ StartManager otomatik olarak başlatılacak');
+            
+            // Logout button event listener'ı ekle
+            const logoutBtn = document.getElementById('logoutBtn');
+            if (logoutBtn) {
+                logoutBtn.addEventListener('click', () => {
+                    // Alert göster
+                    const confirmLogout = confirm('Uygulamadan çıkmak istediğinizden emin misiniz?');
+                    
+                    if (confirmLogout) {
+                        console.log('🚪 Kullanıcı çıkış yapıyor...');
+                        // Auth'u temizle
+                        if (window.simpleAuth) {
+                            window.simpleAuth.logout();
+                        }
+                        // Sayfayı yenile
+                        window.location.reload();
+                    } else {
+                        console.log('❌ Çıkış iptal edildi');
+                    }
+                });
+            }
+            
+            // Modal Dashboard button event listener'ı ekle
+            const dashboardBtn = document.getElementById('dashboardBtn');
+            if (dashboardBtn) {
+                dashboardBtn.addEventListener('click', () => {
+                    const confirmDashboard = confirm('Dashboard\'a geçmek istediğinizden emin misiniz?');
+                    if (confirmDashboard) {
+                        console.log('🏠 Dashboard\'a dönülüyor...');
+                        // Dashboard'a yönlendir
+                        window.location.href = '../dashboard/';
+                    } else {
+                        console.log('❌ Dashboard\'a dönüş iptal edildi');
+                    }
+                });
+            }
+            
+            // Sidebar Dashboard button event listener'ı ekle
+            const sidebarDashboardBtn = document.getElementById('sidebarDashboardBtn');
+            if (sidebarDashboardBtn) {
+                sidebarDashboardBtn.addEventListener('click', () => {
+                    const confirmDashboard = confirm('Dashboard\'a geçmek istediğinizden emin misiniz?');
+                    if (confirmDashboard) {
+                        console.log('🏠 Dashboard\'a dönülüyor...');
+                        // Dashboard'a yönlendir
+                        window.location.href = '../dashboard/';
+                    }
+                });
+            }
             
             // Manuel test
             setTimeout(() => {

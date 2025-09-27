@@ -6,6 +6,16 @@ class ExportManager {
     constructor(labelingTool) {
         this.labelingTool = labelingTool;
         this.setupEventListeners();
+        
+        // Debug: Constructor'da bağlantıları kontrol et
+        console.log('🔧 ExportManager constructor - labelingTool:', !!this.labelingTool);
+        console.log('🔧 ExportManager constructor - imageManager:', !!this.labelingTool?.imageManager);
+        console.log('🔧 ExportManager constructor - window.labelingTool:', !!window.labelingTool);
+        
+        // Bağlantı sorunu varsa uyar
+        if (!this.labelingTool) {
+            console.warn('⚠️ ExportManager: labelingTool bağlantısı yok!');
+        }
     }
 
     setupEventListeners() {
@@ -275,8 +285,8 @@ class ExportManager {
             exportLabelCaseMode: 'original'
         };
 
-        // Modal'ı önce kapat (showSaveFilePicker için gerekli)
-        this.closeExportModal();
+        // Modal'ı kapatma - showSaveFilePicker için modal açık kalmalı
+        // this.closeExportModal();
 
         try {
             // ImageManager kontrolü - ana sayfadaki yoloExport gibi
@@ -323,12 +333,7 @@ class ExportManager {
 
             switch (format) {
                 case 'yolo':
-                    // Sidebar'daki yoloExport fonksiyonunu kullan
-                    if (this.labelingTool.yoloExport) {
-                        await this.labelingTool.yoloExport();
-                    } else {
-                        await this.exportYOLO(trainSplit, {}, exportOptions);
-                    }
+                    await this.exportYOLO(trainSplit, {}, exportOptions);
                     break;
                 case 'yolo_segmentation':
                     await this.exportYOLOSegmentation(trainSplit, {}, exportOptions);
@@ -683,35 +688,8 @@ class ExportManager {
             // Dosya adını oluştur
             const fileName = `${projectName}_dataset.zip`;
             
-            // Kullanıcıdan dosya konumu seçmesini iste
-            if ('showSaveFilePicker' in window) {
-                // Modern tarayıcılar için File System Access API
-                try {
-                    const fileHandle = await window.showSaveFilePicker({
-                        suggestedName: fileName,
-                        types: [{
-                            description: 'ZIP dosyaları',
-                            accept: {
-                                'application/zip': ['.zip']
-                            }
-                        }]
-                    });
-                    
-                    // Dosyayı yaz
-                    const writable = await fileHandle.createWritable();
-                    await writable.write(content);
-                    await writable.close();
-                    
-                    this.labelingTool.showInfo('Dosya başarıyla kaydedildi!');
-                    
-                } catch (error) {
-                    if (error.name === 'AbortError') {
-                        this.labelingTool.showInfo('Kaydetme iptal edildi.');
-                        return;
-                    }
-                    throw error;
-                }
-            } else {
+            // Electron'da direkt indirme kullan
+            console.log('💾 Electron ortamında dosya indirme başlatılıyor:', fileName);
                 // Eski tarayıcılar için fallback
                 this.fallbackDownload(content, fileName);
             }
@@ -1194,12 +1172,21 @@ class ExportManager {
                         );
                         
                         if (filterResponse.ok) {
-                            const filterData = await filterResponse.json();
-                            if (filterData && filterData.type && filterData.type !== 'none') {
-                                weatherFilters[image.id] = {
-                                    type: filterData.type,
-                                    data: filterData
-                                };
+                            const filterResponseData = await filterResponse.json();
+                            console.log(`🌤️ Resim ${image.id} weather filter response:`, filterResponseData);
+                            
+                            // Backend response formatını parse et: { success: true, weatherFilter: { filter_data: {...} } }
+                            if (filterResponseData.success && filterResponseData.weatherFilter && filterResponseData.weatherFilter.filter_data) {
+                                const filterData = JSON.parse(filterResponseData.weatherFilter.filter_data);
+                                console.log(`🌤️ Parsed filter data:`, filterData);
+                                
+                                if (filterData && filterData.type && filterData.type !== 'none') {
+                                    weatherFilters[image.id] = {
+                                        type: filterData.type,
+                                        data: filterData
+                                    };
+                                    console.log(`✅ Weather filter eklendi: ${image.id} -> ${filterData.type}`);
+                                }
                             }
                         }
                     } catch (error) {
@@ -1344,7 +1331,19 @@ class ExportManager {
             }
             
             if (imageBlob) {
-                imagesFolder.file(image.fileName, imageBlob);
+                // Güvenli dosya adı oluştur
+                let imageFileName;
+                if (image.fileName && typeof image.fileName === 'string') {
+                    imageFileName = image.fileName;
+                } else if (image.file_name && typeof image.file_name === 'string') {
+                    imageFileName = image.file_name;
+                } else {
+                    // Fallback: ID kullan
+                    imageFileName = `image_${image.id}.jpg`;
+                }
+                
+                console.log(`📸 Resim dosyası kopyalanıyor: ${imageFileName}`);
+                imagesFolder.file(imageFileName, imageBlob);
             }
         }
 
@@ -1379,7 +1378,19 @@ class ExportManager {
 
         // Label dosyasını oluştur
         const labelContent = this.createYOLLabelFile(currentImageAnnotations, classMapping, exportOptions);
-        const labelFileName = image.fileName.replace(/\.[^/.]+$/, '.txt');
+        
+        // Güvenli dosya adı oluştur
+        let labelFileName;
+        if (image.fileName && typeof image.fileName === 'string') {
+            labelFileName = image.fileName.replace(/\.[^/.]+$/, '.txt');
+        } else if (image.file_name && typeof image.file_name === 'string') {
+            labelFileName = image.file_name.replace(/\.[^/.]+$/, '.txt');
+        } else {
+            // Fallback: ID kullan
+            labelFileName = `image_${image.id}.txt`;
+        }
+        
+        console.log(`📝 Label dosyası oluşturuluyor: ${labelFileName}`);
         labelsFolder.file(labelFileName, labelContent);
     }
 
@@ -1414,7 +1425,19 @@ class ExportManager {
             }
             
             if (imageBlob) {
-                imagesFolder.file(image.fileName, imageBlob);
+                // Güvenli dosya adı oluştur
+                let imageFileName;
+                if (image.fileName && typeof image.fileName === 'string') {
+                    imageFileName = image.fileName;
+                } else if (image.file_name && typeof image.file_name === 'string') {
+                    imageFileName = image.file_name;
+                } else {
+                    // Fallback: ID kullan
+                    imageFileName = `image_${image.id}.jpg`;
+                }
+                
+                console.log(`📸 Resim dosyası kopyalanıyor: ${imageFileName}`);
+                imagesFolder.file(imageFileName, imageBlob);
             }
         }
 
@@ -1457,7 +1480,19 @@ class ExportManager {
 
         // Segmentation label dosyasını oluştur
         const labelContent = this.createYOLOSegmentationLabelFile(currentImageAnnotations, classMapping, exportOptions);
-        const labelFileName = image.fileName.replace(/\.[^/.]+$/, '.txt');
+        
+        // Güvenli dosya adı oluştur
+        let labelFileName;
+        if (image.fileName && typeof image.fileName === 'string') {
+            labelFileName = image.fileName.replace(/\.[^/.]+$/, '.txt');
+        } else if (image.file_name && typeof image.file_name === 'string') {
+            labelFileName = image.file_name.replace(/\.[^/.]+$/, '.txt');
+        } else {
+            // Fallback: ID kullan
+            labelFileName = `image_${image.id}.txt`;
+        }
+        
+        console.log(`📝 Segmentation label dosyası oluşturuluyor: ${labelFileName}`);
         labelsFolder.file(labelFileName, labelContent);
     }
 
@@ -1815,7 +1850,7 @@ ${classes.map((className, index) => `  ${index}: ${className}`).join('\n')}
                 id: imageIndex + 1,
                 width: image.width || 1920,
                 height: image.height || 1080,
-                file_name: image.fileName,
+                file_name: image.fileName || image.file_name || `image_${image.id}.jpg`,
                 license: 1,
                 date_captured: new Date().toISOString()
             });
@@ -1868,7 +1903,18 @@ ${classes.map((className, index) => `  ${index}: ${className}`).join('\n')}
                 classMapping,
                 exportOptions
             );
-            const xmlFileName = image.fileName.replace(/\.[^/.]+$/, '.xml');
+            // Güvenli dosya adı oluştur
+            let xmlFileName;
+            if (image.fileName && typeof image.fileName === 'string') {
+                xmlFileName = image.fileName.replace(/\.[^/.]+$/, '.xml');
+            } else if (image.file_name && typeof image.file_name === 'string') {
+                xmlFileName = image.file_name.replace(/\.[^/.]+$/, '.xml');
+            } else {
+                // Fallback: ID kullan
+                xmlFileName = `image_${image.id}.xml`;
+            }
+            
+            console.log(`📝 XML dosyası oluşturuluyor: ${xmlFileName}`);
             annotationsFolder.file(xmlFileName, xmlContent);
         }
     }
@@ -1877,8 +1923,8 @@ ${classes.map((className, index) => `  ${index}: ${className}`).join('\n')}
         let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <annotation>
     <folder>JPEGImages</folder>
-    <filename>${image.fileName}</filename>
-    <path>./JPEGImages/${image.fileName}</path>
+    <filename>${image.fileName || image.file_name || `image_${image.id}.jpg`}</filename>
+    <path>./JPEGImages/${image.fileName || image.file_name || `image_${image.id}.jpg`}</path>
     <source>
         <database>Labeling Tool</database>
     </source>
@@ -1926,7 +1972,7 @@ ${classes.map((className, index) => `  ${index}: ${className}`).join('\n')}
             },
             images: images.map(image => ({
                 id: image.id,
-                fileName: image.fileName,
+                fileName: image.fileName || image.file_name || `image_${image.id}.jpg`,
                 width: image.width || 1920,
                 height: image.height || 1080,
                 annotations: (annotations && annotations[image.id] ? annotations[image.id] : []).map(annotation => ({
@@ -1950,7 +1996,8 @@ ${classes.map((className, index) => `  ${index}: ${className}`).join('\n')}
             imageAnnotations.forEach(annotation => {
                 const labelName = this.transformLabelForExport ? this.transformLabelForExport(annotation.label, exportOptions) : annotation.label;
                 const classId = classMapping[labelName] !== undefined ? classMapping[labelName] : 0;
-                csv += `${image.id},${image.fileName},${annotation.id},${labelName},${classId},${annotation.x},${annotation.y},${annotation.width},${annotation.height}\n`;
+                const imageFileName = image.fileName || image.file_name || `image_${image.id}.jpg`;
+                csv += `${image.id},${imageFileName},${annotation.id},${labelName},${classId},${annotation.x},${annotation.y},${annotation.width},${annotation.height}\n`;
             });
         });
         return csv;
@@ -1967,10 +2014,18 @@ ${classes.map((className, index) => `  ${index}: ${className}`).join('\n')}
                     `${imageManager.baseURL}/images/${image.id}/weather-filter`
                 );
                 if (filterResponse.ok) {
-                    const filterData = await filterResponse.json();
-                    if (filterData && filterData.type && filterData.type !== 'none') {
-                        console.log(`🌤️ Resim ${image.id} için filtre uygulanıyor:`, filterData.type);
-                        imageBlob = await this.getFilteredImageBlob(image, filterData.type);
+                    const filterResponseData = await filterResponse.json();
+                    console.log(`🌤️ Resim ${image.id} weather filter response:`, filterResponseData);
+                    
+                    // Backend response formatını parse et: { success: true, weatherFilter: { filter_data: {...} } }
+                    if (filterResponseData.success && filterResponseData.weatherFilter && filterResponseData.weatherFilter.filter_data) {
+                        const filterData = JSON.parse(filterResponseData.weatherFilter.filter_data);
+                        console.log(`🌤️ Parsed filter data:`, filterData);
+                        
+                        if (filterData && filterData.type && filterData.type !== 'none') {
+                            console.log(`🌤️ Resim ${image.id} için filtre uygulanıyor:`, filterData.type);
+                            imageBlob = await this.getFilteredImageBlob(image, filterData.type);
+                        }
                     }
                 }
             } catch (error) {
@@ -1987,29 +2042,51 @@ ${classes.map((className, index) => `  ${index}: ${className}`).join('\n')}
             }
 
             if (imageBlob) {
-                imagesFolder.file(image.fileName, imageBlob);
+                // Güvenli dosya adı oluştur
+                let imageFileName;
+                if (image.fileName && typeof image.fileName === 'string') {
+                    imageFileName = image.fileName;
+                } else if (image.file_name && typeof image.file_name === 'string') {
+                    imageFileName = image.file_name;
+                } else {
+                    // Fallback: ID kullan
+                    imageFileName = `image_${image.id}.jpg`;
+                }
+                
+                console.log(`📸 Resim dosyası kopyalanıyor: ${imageFileName}`);
+                imagesFolder.file(imageFileName, imageBlob);
             }
         }
     }
 
     async saveZipFile(zip, fileName) {
         const content = await zip.generateAsync({ type: "blob" });
-        // Export işlemi sırasında showSaveFilePicker çalışmaz, otomatik indirme kullan
-        console.log('💾 ZIP dosyası oluşturuldu, otomatik indirme başlatılıyor:', fileName);
-        if (this.fallbackDownload) {
-            this.fallbackDownload(content, fileName);
-        } else {
-            // fallbackDownload fonksiyonu yoksa klasik indirme
+        console.log('💾 ZIP dosyası oluşturuldu, kaydetme işlemi başlatılıyor:', fileName);
+        
+        try {
+            // Electron'da File System Access API çalışmaz, direkt indirme kullan
+            console.log('💾 Electron ortamında dosya indirme başlatılıyor:', fileName);
+            
             const url = URL.createObjectURL(content);
             const a = document.createElement('a');
             a.href = url;
             a.download = fileName;
+            a.style.display = 'none';
             document.body.appendChild(a);
             a.click();
+            
             setTimeout(() => {
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
             }, 100);
+            
+            console.log('✅ Dosya başarıyla indirildi:', fileName);
+            this.labelingTool.showInfo(`Dosya indirildi: ${fileName}`);
+            // Export başarılı olduktan sonra modal'ı kapat
+            this.closeExportModal();
+        } catch (error) {
+            console.error('❌ Dosya kaydetme hatası:', error);
+            this.labelingTool.showError('Dosya kaydetme hatası: ' + error.message);
         }
     }
 
@@ -2035,21 +2112,49 @@ ${classes.map((className, index) => `  ${index}: ${className}`).join('\n')}
                     canvas.height = img.naturalHeight;
                     ctx.drawImage(img, 0, 0);
 
-                    if (this.labelingTool && this.labelingTool.applyWeatherFilter) {
-                        console.log('🎨 Renk filtresi uygulanıyor:', filterType);
-                        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                        const filteredData = this.labelingTool.applyWeatherFilter(imageData, filterType);
-                        if (filteredData && filteredData instanceof ImageData) {
-                            ctx.putImageData(filteredData, 0, 0);
-                            console.log('✅ Renk filtresi uygulandı');
-                        }
+                    // Renk filtresi uygula - Frontend'deki aynı fonksiyonu kullan
+                    console.log('🎨 Renk filtresi uygulanıyor:', filterType);
+                    console.log('🔍 this.labelingTool:', !!this.labelingTool);
+                    console.log('🔍 window.labelingTool:', !!window.labelingTool);
+                    console.log('🔍 applyWeatherFilterForExport fonksiyonu:', !!(this.labelingTool && this.labelingTool.applyWeatherFilterForExport));
+                    console.log('🔍 window.applyWeatherFilterForExport fonksiyonu:', !!(window.labelingTool && window.labelingTool.applyWeatherFilterForExport));
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    
+                    // 🆕 Export için weather filter uygula - doğrudan script.js'deki fonksiyonu kullan
+                    console.log('🎨 Export için weather filter uygulanıyor:', filterType);
+                    
+                    // window.labelingTool'dan applyWeatherFilterForExport fonksiyonunu çağır
+                    if (window.labelingTool && window.labelingTool.applyWeatherFilterForExport) {
+                        console.log('✅ window.labelingTool.applyWeatherFilterForExport bulundu, çağrılıyor...');
+                        window.labelingTool.applyWeatherFilterForExport(imageData, filterType);
+                        ctx.putImageData(imageData, 0, 0);
+                        console.log('✅ Weather filter uygulandı (window.labelingTool ile)');
+                    } else {
+                        console.warn('⚠️ window.labelingTool.applyWeatherFilterForExport bulunamadı');
+                        console.warn('⚠️ window.labelingTool:', !!window.labelingTool);
+                        console.warn('⚠️ applyWeatherFilterForExport:', !!(window.labelingTool && window.labelingTool.applyWeatherFilterForExport));
+                        
+                        // Fallback: Basit renk düzeltmesi uygula
+                        console.log('🔄 Fallback: Basit renk düzeltmesi uygulanıyor...');
+                        this.applySimpleWeatherFilter(imageData, filterType);
+                        ctx.putImageData(imageData, 0, 0);
+                        console.log('✅ Fallback renk filtresi uygulandı');
                     }
 
-                    // Canvas efektlerini uygula (kar/yağmur taneleri) - PİKSEL DEĞİŞİMİ İLE
-                    if (this.addWeatherEffectToPixels) {
-                        console.log('🎨 Canvas efektleri uygulanıyor (piksel değişimi ile):', filterType);
-                        this.addWeatherEffectToPixels(ctx, filterType, canvas.width, canvas.height);
-                        console.log('✅ Canvas efektleri piksel olarak uygulandı');
+                    // 🆕 Canvas efektlerini uygula - window.labelingTool'dan çağır
+                    if (window.labelingTool && window.labelingTool.addWeatherEffect) {
+                        console.log('🎨 Canvas efektleri uygulanıyor (window.labelingTool ile):', filterType);
+                        window.labelingTool.addWeatherEffect(ctx, filterType, canvas.width, canvas.height);
+                        console.log('✅ Canvas efektleri uygulandı (window.labelingTool ile)');
+                    } else {
+                        console.warn('⚠️ window.labelingTool.addWeatherEffect bulunamadı');
+                        console.warn('⚠️ window.labelingTool:', !!window.labelingTool);
+                        console.warn('⚠️ addWeatherEffect:', !!(window.labelingTool && window.labelingTool.addWeatherEffect));
+                        
+                        // Fallback: Basit canvas efektleri uygula
+                        console.log('🔄 Fallback: Basit canvas efektleri uygulanıyor...');
+                        this.applySimpleCanvasEffects(ctx, filterType, canvas.width, canvas.height);
+                        console.log('✅ Fallback canvas efektleri uygulandı');
                     }
 
                     canvas.toBlob((blob) => {
@@ -2273,9 +2378,108 @@ ${classes.map((className, index) => `  ${index}: ${className}`).join('\n')}
             data[i + 2] = gray * 0.7;
         }
     }
+
+    // Fallback: Basit weather filter fonksiyonu
+    applySimpleWeatherFilter(imageData, filterType) {
+        console.log('🎨 Basit weather filter uygulanıyor:', filterType);
+        const data = imageData.data;
+        
+        switch(filterType) {
+            case 'sunny':
+                // Güneşli: Parlaklık ve kontrast artır
+                for (let i = 0; i < data.length; i += 4) {
+                    data[i] = Math.min(255, data[i] * 1.1);     // R
+                    data[i + 1] = Math.min(255, data[i + 1] * 1.1); // G
+                    data[i + 2] = Math.min(255, data[i + 2] * 1.05); // B
+                }
+                break;
+            case 'cloudy':
+                // Bulutlu: Gri tonlama
+                for (let i = 0; i < data.length; i += 4) {
+                    const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
+                    data[i] = gray * 0.8;     // R
+                    data[i + 1] = gray * 0.8; // G
+                    data[i + 2] = gray * 0.8; // B
+                }
+                break;
+            case 'rainy':
+                // Yağmurlu: Mavi tonlama
+                for (let i = 0; i < data.length; i += 4) {
+                    data[i] = Math.min(255, data[i] * 0.8);     // R
+                    data[i + 1] = Math.min(255, data[i + 1] * 0.9); // G
+                    data[i + 2] = Math.min(255, data[i + 2] * 1.2); // B
+                }
+                break;
+            case 'night':
+                // Gece: Koyu tonlama
+                for (let i = 0; i < data.length; i += 4) {
+                    data[i] = data[i] * 0.3;     // R
+                    data[i + 1] = data[i + 1] * 0.3; // G
+                    data[i + 2] = data[i + 2] * 0.5; // B
+                }
+                break;
+            case 'foggy':
+                // Sisli: Soluk tonlama
+                for (let i = 0; i < data.length; i += 4) {
+                    const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
+                    data[i] = gray * 0.7;     // R
+                    data[i + 1] = gray * 0.7; // G
+                    data[i + 2] = gray * 0.7; // B
+                }
+                break;
+            default:
+                console.log('ℹ️ Bilinmeyen filter type, orijinal resim korunuyor');
+        }
+        
+        console.log('✅ Basit weather filter uygulandı:', filterType);
+    }
+
+    // Fallback: Basit canvas efektleri fonksiyonu
+    applySimpleCanvasEffects(ctx, filterType, width, height) {
+        console.log('🎨 Basit canvas efektleri uygulanıyor:', filterType);
+        
+        switch(filterType) {
+            case 'rainy':
+                // Yağmur efektleri
+                ctx.fillStyle = 'rgba(135, 206, 235, 0.1)';
+                for (let i = 0; i < 50; i++) {
+                    const x = Math.random() * width;
+                    const y = Math.random() * height;
+                    ctx.fillRect(x, y, 1, 10);
+                }
+                break;
+            case 'foggy':
+                // Sis efekti
+                const gradient = ctx.createRadialGradient(width/2, height/2, 0, width/2, height/2, width/2);
+                gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
+                gradient.addColorStop(1, 'rgba(255, 255, 255, 0.3)');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, width, height);
+                break;
+            case 'night':
+                // Gece efekti
+                ctx.fillStyle = 'rgba(0, 0, 50, 0.4)';
+                ctx.fillRect(0, 0, width, height);
+                break;
+            case 'snowy':
+                // Kar efekti
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                for (let i = 0; i < 100; i++) {
+                    const x = Math.random() * width;
+                    const y = Math.random() * height;
+                    ctx.beginPath();
+                    ctx.arc(x, y, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                break;
+            default:
+                console.log('ℹ️ Canvas efekti yok, orijinal resim korunuyor');
+        }
+        
+        console.log('✅ Basit canvas efektleri uygulandı:', filterType);
+    }
 }
 
-// Export for use in main script
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = ExportManager;
 } else {

@@ -366,21 +366,49 @@ class LabelingCore {
         
         try {
             const imageId = window.imageManager.currentImage.id;
-            const response = await fetch(`http://${window.location.hostname}:3000/api/images/${imageId}/annotations`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ annotations: this.state.annotations })
-            });
             
-            if (response.ok) {
-                this.state.isSaved = true;
-                this.showStatus('Etiketler kaydedildi ✓', 'success');
+            // APIManager kullan
+            if (window.apiManager) {
+                console.log('💾 LabelingCore: APIManager ile kaydetme yapılıyor');
+                const result = await window.apiManager.saveAnnotations(imageId, this.state.annotations);
+                
+                if (result.success) {
+                    this.state.isSaved = true;
+                    this.showStatus('Etiketler kaydedildi ✓', 'success');
+                } else {
+                    throw new Error(result.error || 'Kaydetme başarısız');
+                }
             } else {
-                throw new Error('Kaydetme başarısız');
+                // Fallback: Doğrudan fetch kullan
+                console.log('💾 LabelingCore: Fallback fetch ile kaydetme yapılıyor');
+                
+                // URL'i doğru şekilde oluştur
+                const hostname = window.location.hostname;
+                const port = window.location.port || '3000';
+                const baseURL = `http://${hostname}:${port}/api`;
+                
+                console.log('🌐 LabelingCore: Base URL:', baseURL);
+                
+                const response = await fetch(`${baseURL}/images/${imageId}/annotations`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ annotations: this.state.annotations })
+                });
+                
+                console.log('📡 LabelingCore: Response status:', response.status);
+                
+                if (response.ok) {
+                    this.state.isSaved = true;
+                    this.showStatus('Etiketler kaydedildi ✓', 'success');
+                } else {
+                    const errorText = await response.text();
+                    console.error('❌ LabelingCore: HTTP Error:', response.status, errorText);
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
             }
         } catch (error) {
-            console.error('Kaydetme hatası:', error);
-            this.showStatus('Kaydetme hatası ✗', 'error');
+            console.error('❌ LabelingCore: Kaydetme hatası:', error);
+            this.showStatus('Kaydetme hatası: ' + error.message, 'error');
         }
     }
     

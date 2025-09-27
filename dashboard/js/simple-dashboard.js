@@ -1,17 +1,21 @@
-class SimpleDashboard {
-    constructor() {
-        console.log('🏗️ SimpleDashboard constructor başlatılıyor...');
-        this.projects = [];
-        this.labelChart = null; // Chart referansı için
-        this.currentProjectId = null; // Seçili proje ID'si
-        this.socket = null; // WebSocket bağlantısı
-        this.isServerRunning = false; // Server durumu
-        this.serverIP = null; // Gerçek IP adresi
-        this.baseURL = null; // Dinamik olarak ayarlanacak
-        
-        console.log('🔧 Dashboard direkt başlatılıyor (auth kaldırıldı)');
-        this.init();
-    }
+// Duplicate declaration prevention
+if (typeof window.SimpleDashboard === 'undefined') {
+    window.SimpleDashboard = class SimpleDashboard {
+        constructor() {
+            console.log('🏗️ SimpleDashboard constructor başlatılıyor...');
+            this.projects = [];
+            this.labelChart = null; // Chart referansı için
+            this.currentProjectId = null; // Seçili proje ID'si
+            this.socket = null; // WebSocket bağlantısı
+            this.isServerRunning = false; // Server durumu
+            this.serverIP = null; // Gerçek IP adresi
+            this.baseURL = null; // Dinamik olarak ayarlanacak
+            this.connectionRetries = 0; // Bağlantı deneme sayısı
+            this.maxRetries = 3; // Maksimum deneme sayısı
+            
+            console.log('🔧 Dashboard direkt başlatılıyor (auth kaldırıldı)');
+            this.init();
+        }
 
     async init() {
         console.log('🚀 SimpleDashboard başlatılıyor...');
@@ -21,13 +25,19 @@ class SimpleDashboard {
         this.setupEventListeners();
         this.setupTabNavigation();
         
-        // IP adresini al ve baseURL'i ayarla
-        await this.getServerIP();
-        this.baseURL = `http://${this.serverIP}:3000/api`;
-        console.log('🌐 Base URL:', this.baseURL);
+        // 🆕 Önce kaydedilmiş uzak server bilgilerini kontrol et
+        await this.checkSavedRemoteServer();
         
-        // Server durumunu kontrol et
-        await this.checkServerStatus();
+        // Eğer uzak server bulunamadıysa local IP'yi kullan
+        if (!this.isServerRunning) {
+            // IP adresini al ve baseURL'i ayarla
+            await this.getServerIP();
+            this.baseURL = `http://${this.serverIP}:3000/api`;
+            console.log('🌐 Base URL:', this.baseURL);
+            
+            // Server durumunu kontrol et
+            await this.checkServerStatus();
+        }
         
         // Eğer server çalışıyorsa verileri yükle
         if (this.isServerRunning) {
@@ -43,11 +53,140 @@ class SimpleDashboard {
         }
     }
 
+    // 🆕 Kaydedilmiş uzak server bilgilerini kontrol et ve otomatik bağlan
+    async checkSavedRemoteServer() {
+        console.log('🔍 Kaydedilmiş uzak server bilgileri kontrol ediliyor...');
+        
+        const savedIP = localStorage.getItem('serverIP');
+        const savedPort = localStorage.getItem('serverPort');
+        const isRemoteServer = localStorage.getItem('isRemoteServer');
+        
+        if (savedIP && savedPort && isRemoteServer === 'true') {
+            console.log('💾 Kaydedilmiş server bilgileri bulundu:', { savedIP, savedPort });
+            
+            try {
+                // Kaydedilmiş server'a bağlantı test et
+                const testURL = `http://${savedIP}:${savedPort}/api/health`;
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 saniye timeout
+                
+                const response = await fetch(testURL, { 
+                    signal: controller.signal,
+                    method: 'GET',
+                    mode: 'cors',
+                    cache: 'no-cache'
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (response.ok) {
+                    console.log('✅ Kaydedilmiş uzak servera başarıyla bağlanıldı:', savedIP);
+                    
+                    // Bağlantı başarılı - retry sayısını sıfırla
+                    this.connectionRetries = 0;
+                    this.hideRetryIndicator();
+                    
+                    // Bağlantı bilgilerini güncelle
+                    this.baseURL = `http://${savedIP}:${savedPort}/api`;
+                    this.serverIP = savedIP;
+                    this.isServerRunning = true;
+                    
+                    // Bağlantı durumunu güncelle
+                    this.updateConnectionStatus('connected', `Uzak Server: ${savedIP}:${savedPort}`);
+                    
+                    this.showToast(`Kaydedilmiş uzak servera otomatik bağlanıldı: ${savedIP}:${savedPort}`, 'success');
+                    return true;
+                } else {
+                    console.log('❌ Kaydedilmiş uzak servera bağlanılamadı:', response.status);
+                    // Kaydedilmiş bilgileri temizle
+                    this.clearSavedRemoteServer();
+                }
+            } catch (error) {
+                console.log('❌ Kaydedilmiş uzak servera bağlantı hatası:', error.message);
+                
+                // Timeout veya connection error durumunda kaydedilmiş bilgileri temizle
+                if (error.name === 'AbortError' || error.message.includes('timeout') || 
+                    error.message.includes('ERR_CONNECTION_TIMED_OUT') || 
+                    error.message.includes('ERR_NETWORK') ||
+                    error.message.includes('Failed to fetch')) {
+                    
+                    this.connectionRetries++;
+                    console.log(`🕐 Bağlantı timeout (${this.connectionRetries}/${this.maxRetries})`);
+                    
+                    // Retry sayısını göster
+                    this.updateRetryIndicator();
+                    
+                    if (this.connectionRetries >= this.maxRetries) {
+                        console.log('❌ Maksimum deneme sayısına ulaşıldı - kaydedilmiş server bilgileri temizleniyor');
+                        this.clearSavedRemoteServer();
+                        this.connectionRetries = 0;
+                        this.hideRetryIndicator();
+                        this.showToast('Kaydedilmiş server erişilemez durumda, local server\'a geçiliyor', 'warning');
+                    } else {
+                        console.log(`⏳ ${this.maxRetries - this.connectionRetries} deneme hakkı kaldı`);
+                    }
+                }
+            }
+        } else {
+            console.log('📝 Kaydedilmiş uzak server bilgisi bulunamadı');
+        }
+        
+        return false;
+    }
+
+    // 🆕 Kaydedilmiş uzak server bilgilerini temizle
+    clearSavedRemoteServer() {
+        console.log('🗑️ Kaydedilmiş uzak server bilgileri temizleniyor...');
+        localStorage.removeItem('serverIP');
+        localStorage.removeItem('serverPort');
+        localStorage.removeItem('isRemoteServer');
+        localStorage.removeItem('lastConnectedServer');
+    }
+
+    // 🆕 Bağlantıyı temizle ve sayfayı yenile
+    clearConnectionAndReload() {
+        if (confirm('Tüm bağlantı bilgileri temizlenecek ve sayfa yenilenecek. Devam etmek istiyor musunuz?')) {
+            console.log('🗑️ Tüm bağlantı bilgileri temizleniyor...');
+            this.clearSavedRemoteServer();
+            
+            // Bağlantı durumunu sıfırla
+            this.isServerRunning = false;
+            this.serverIP = null;
+            this.baseURL = null;
+            this.connectionRetries = 0;
+            this.hideRetryIndicator();
+            
+            this.showToast('Bağlantı bilgileri temizlendi, sayfa yenileniyor...', 'info');
+            
+            // Sayfayı yenile
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        }
+    }
+
+    // 🆕 Retry indicator güncelleme
+    updateRetryIndicator() {
+        const retryElement = document.getElementById('connectionRetries');
+        if (retryElement && this.connectionRetries > 0) {
+            retryElement.style.display = 'inline';
+            retryElement.textContent = `(${this.connectionRetries}/${this.maxRetries})`;
+        }
+    }
+
+    // 🆕 Retry indicator gizleme
+    hideRetryIndicator() {
+        const retryElement = document.getElementById('connectionRetries');
+        if (retryElement) {
+            retryElement.style.display = 'none';
+        }
+    }
 
     setupEventListeners() {
         // Logout (sadece sayfa yenileme)
         document.getElementById('logoutBtn').addEventListener('click', () => {
             console.log('🚪 Sayfa yenileniyor...');
+            // 🆕 Server bilgilerini koru - sadece sayfa yenile
             window.location.reload();
         });
 
@@ -82,7 +221,7 @@ class SimpleDashboard {
         });
 
         // Server start modal events
-        document.getElementById('closeServerModal').addEventListener('click', () => {
+        document.getElementById('closeServerStartModal').addEventListener('click', () => {
             this.hideServerStartModal();
         });
 
@@ -197,7 +336,7 @@ class SimpleDashboard {
         if (!projectSelect) return;
 
         // Proje listesini temizle
-        projectSelect.innerHTML = '<option value="">Tüm Projeler</option>';
+        projectSelect.innerHTML = '<option value="">Proje Seçin</option>';
 
         // Projeleri ekle
         this.projects.forEach(project => {
@@ -207,10 +346,26 @@ class SimpleDashboard {
             projectSelect.appendChild(option);
         });
 
+        // İlk projeyi default olarak seç
+        if (this.projects.length > 0) {
+            projectSelect.value = this.projects[0].id;
+            this.currentProjectId = this.projects[0].id;
+            console.log('📊 Default proje seçildi:', this.projects[0].name);
+            // İlk proje için analizi yükle
+            this.loadLabelAnalytics();
+        }
+
         // Proje değiştiğinde analizi yenile
         projectSelect.addEventListener('change', async (e) => {
             this.currentProjectId = e.target.value || null;
-            console.log('📊 Proje değişti:', this.currentProjectId ? `Proje ID: ${this.currentProjectId}` : 'Tüm projeler');
+            console.log('📊 Proje değişti:', this.currentProjectId ? `Proje ID: ${this.currentProjectId}` : 'Proje seçilmedi');
+            
+            // Eğer proje seçilmediyse chart'ı temizle
+            if (!this.currentProjectId) {
+                this.clearChart();
+                return;
+            }
+            
             await this.loadLabelAnalytics();
         });
     }
@@ -229,9 +384,23 @@ class SimpleDashboard {
                 return;
             }
             
-            this.socket = io(socketURL);
+            this.socket = io(socketURL, {
+                timeout: 3000, // 3 saniye timeout
+                forceNew: true,
+                transports: ['websocket', 'polling']
+            });
+            
+            // Bağlantı timeout kontrolü
+            const connectionTimeout = setTimeout(() => {
+                if (this.socket && !this.socket.connected) {
+                    console.log('⏰ WebSocket bağlantı timeout');
+                    this.socket.disconnect();
+                    this.updateConnectionStatus('disconnected', 'Bağlantı Zaman Aşımı');
+                }
+            }, 5000); // 5 saniye sonra timeout
             
             this.socket.on('connect', () => {
+                clearTimeout(connectionTimeout);
                 console.log('✅ WebSocket bağlantısı kuruldu');
                 this.updateConnectionStatus('connected', `Bağlantı kuruldu: ${this.serverIP}:3000`);
             });
@@ -248,6 +417,18 @@ class SimpleDashboard {
                     console.error('❌ Son güncelleme hatası:', error);
                 }
             });
+
+            // Bağlantı hatalarını yakala
+            this.socket.on('connect_error', (error) => {
+                console.error('❌ WebSocket bağlantı hatası:', error);
+                this.updateConnectionStatus('disconnected', 'Bağlantı Hatası');
+                
+                // Eğer uzak server kullanılıyorsa ve bağlantı hatası varsa
+                if (this.connectionRetries >= this.maxRetries) {
+                    this.clearSavedRemoteServer();
+                    this.showToast('Uzak server bağlantısı kesildi, local server\'a geçiliyor', 'warning');
+                }
+            });
             
             // Etiket eklendiğinde dashboard'ı güncelle
             this.socket.on('labelAdded', async (data) => {
@@ -255,8 +436,15 @@ class SimpleDashboard {
                 
                 // Sadece gerçek değişiklik olduğunda güncelle
                 if (data.savedCount > 0) {
+                    // 🆕 Etiket isimlerini göster
+                    let toastMessage = `Yeni etiket eklendi: ${data.savedCount} adet`;
+                    if (data.labelNames && data.labelNames.length > 0) {
+                        const uniqueLabels = data.labelNames.join(', ');
+                        toastMessage += `\nEtiketler: ${uniqueLabels}`;
+                    }
+                    
                     // Toast notification göster
-                    this.showToast(`Yeni etiket eklendi: ${data.savedCount} adet`, 'success');
+                    this.showToast(toastMessage, 'success');
                     
                     // Dashboard'ı hemen güncelle
                     try {
@@ -267,6 +455,91 @@ class SimpleDashboard {
                     }
                 } else {
                     console.log('📡 Etiket değişikliği yok, güncelleme atlandı');
+                }
+            });
+
+            // 🆕 Etiket silindiğinde dashboard'ı güncelle
+            this.socket.on('labelDeleted', async (data) => {
+                console.log('📡 Etiket silindi bildirimi alındı:', data);
+                
+                if (data.deletedCount > 0) {
+                    // 🆕 Silinen etiket ismini göster
+                    let toastMessage = `Etiket silindi: ${data.deletedCount} adet`;
+                    if (data.deletedLabelName) {
+                        toastMessage += `\nSilinen etiket: ${data.deletedLabelName}`;
+                    }
+                    
+                    this.showToast(toastMessage, 'info');
+                    
+                    try {
+                        await this.loadLabelAnalytics();
+                        console.log('✅ Dashboard etiket silindi bildirimi ile güncellendi');
+                    } catch (error) {
+                        console.error('❌ Dashboard güncelleme hatası:', error);
+                    }
+                }
+            });
+
+            // 🆕 Etiket güncellendiğinde dashboard'ı güncelle
+            this.socket.on('labelUpdated', async (data) => {
+                console.log('📡 Etiket güncellendi bildirimi alındı:', data);
+                
+                this.showToast(`Etiket güncellendi: ${data.labelName || 'Bilinmeyen'}`, 'info');
+                
+                try {
+                    await this.loadLabelAnalytics();
+                    console.log('✅ Dashboard etiket güncellendi bildirimi ile güncellendi');
+                } catch (error) {
+                    console.error('❌ Dashboard güncelleme hatası:', error);
+                }
+            });
+
+            // 🆕 Proje değişikliklerini dinle
+            this.socket.on('projectChanged', async (data) => {
+                console.log('📡 Proje değişikliği bildirimi alındı:', data);
+                
+                if (data.projectId && data.projectId === this.currentProjectId) {
+                    this.showToast('Seçili projede değişiklik yapıldı', 'info');
+                    
+                    try {
+                        await this.loadProjectSummary();
+                        await this.loadLabelAnalytics();
+                        console.log('✅ Dashboard proje değişikliği ile güncellendi');
+                    } catch (error) {
+                        console.error('❌ Dashboard güncelleme hatası:', error);
+                    }
+                }
+            });
+
+            // 🆕 Hava durumu filtreleri güncellendiğinde
+            this.socket.on('weatherFiltersUpdated', async (data) => {
+                console.log('📡 Hava durumu filtreleri güncellendi:', data);
+                
+                this.showToast('Hava durumu filtreleri güncellendi', 'info');
+                
+                try {
+                    await this.loadLabelAnalytics();
+                    console.log('✅ Dashboard hava durumu filtreleri ile güncellendi');
+                } catch (error) {
+                    console.error('❌ Dashboard güncelleme hatası:', error);
+                }
+            });
+
+            // 🆕 Genel sistem güncellemesi
+            this.socket.on('systemUpdate', async (data) => {
+                console.log('📡 Sistem güncellemesi alındı:', data);
+                
+                if (data.type === 'fullRefresh') {
+                    this.showToast('Sistem güncelleniyor...', 'info');
+                    
+                    try {
+                        await this.loadProjectSummary();
+                        await this.loadLabelAnalytics();
+                        this.setupProjectSelector();
+                        console.log('✅ Dashboard tam sistem güncellemesi ile güncellendi');
+                    } catch (error) {
+                        console.error('❌ Dashboard güncelleme hatası:', error);
+                    }
                 }
             });
             
@@ -296,19 +569,19 @@ class SimpleDashboard {
 
     async loadLabelAnalytics() {
         try {
-            console.log('📊 Etiket analizi yükleniyor...', this.currentProjectId ? `Proje: ${this.currentProjectId}` : 'Tüm projeler');
+            // Eğer proje seçilmediyse chart'ı temizle
+            if (!this.currentProjectId) {
+                this.clearChart();
+                return;
+            }
+            
+            console.log('📊 Etiket analizi yükleniyor...', `Proje: ${this.currentProjectId}`);
             
             // Önce proje özetini yükle (daha doğru etiket sayıları için)
             await this.loadProjectSummary();
             
-            let url;
-            if (this.currentProjectId) {
-                // Belirli bir proje için analiz
-                url = `${this.baseURL}/projects/${this.currentProjectId}/annotation-stats`;
-            } else {
-                // Tüm projeler için analiz
-                url = `${this.baseURL}/label-analytics`;
-            }
+            // Belirli bir proje için analiz
+            const url = `${this.baseURL}/projects/${this.currentProjectId}/annotation-stats`;
             
             const response = await fetch(url);
             console.log('📡 Label analytics response status:', response.status);
@@ -365,23 +638,28 @@ class SimpleDashboard {
                 const selectedProject = this.projects.find(p => p.id == this.currentProjectId);
                 chartTitle.textContent = selectedProject ? `${selectedProject.name} - Etiket Dağılımı` : 'Etiket Dağılımı';
             } else {
-                chartTitle.textContent = 'Tüm Projeler - Etiket Dağılımı';
+                chartTitle.textContent = 'Proje Seçin';
             }
         }
         
         // Proje istatistiklerini göster
         this.displayProjectStats(data);
         
-        // Chart oluştur - eğer labelStats boşsa, proje özeti verilerinden oluştur
-        if (labelStats.length === 0 && this.projects && this.projects.length > 0) {
-            // Proje özeti verilerinden basit bir chart oluştur (aynı isimdeki etiketler dahil)
-            const projectStats = this.projects.map(project => ({
-                label: project.name,
-                count: project.labelCount || 0
-            })).filter(stat => stat.count > 0);
-            
-            console.log('📊 Chart için proje verileri kullanılıyor (aynı isimdeki etiketler dahil):', projectStats);
-            this.createLabelChart(projectStats);
+        // Chart oluştur
+        if (labelStats.length === 0) {
+            // Eğer labelStats boşsa, proje özeti verilerinden oluştur
+            if (this.projects && this.projects.length > 0) {
+                const projectStats = this.projects.map(project => ({
+                    label: project.name,
+                    count: project.labelCount || 0
+                })).filter(stat => stat.count > 0);
+                
+                console.log('📊 Chart için proje verileri kullanılıyor:', projectStats);
+                this.createLabelChart(projectStats);
+            } else {
+                console.log('📊 Chart oluşturulamadı - proje verisi yok');
+                this.showNoDataMessage();
+            }
         } else {
             console.log('📊 Chart için analiz verileri kullanılıyor:', labelStats);
             this.createLabelChart(labelStats);
@@ -393,25 +671,43 @@ class SimpleDashboard {
         if (!statsContainer) return;
 
         const labelStats = data.labelStats || [];
-
-        statsContainer.innerHTML = labelStats.length > 0 ? 
-            labelStats
+        
+        // Sadece proje bazlı analiz için
+        if (labelStats.length > 0) {
+            statsContainer.innerHTML = labelStats
                 .sort((a, b) => b.count - a.count) // Sayıya göre sırala (büyükten küçüğe)
                 .map(stat => `
                     <div class="label-item">
                         <div class="label-color" style="background-color: ${this.getLabelColor(stat.label, labelStats)}"></div>
                         <span class="label-name">${stat.label}</span>
-                        <span class="label-separator">-</span>
                         <span class="label-count">${stat.count}</span>
                     </div>
-                `).join('') :
-            '<div class="no-labels">Henüz etiket eklenmemiş</div>';
+                `).join('');
+        } else {
+            statsContainer.innerHTML = '<div class="no-labels">Henüz etiket eklenmemiş</div>';
+        }
+    }
+
+    showNoDataMessage() {
+        const ctx = document.getElementById('labelChart');
+        if (!ctx) return;
+        
+        // Canvas'ı temizle
+        const canvas = ctx.getContext('2d');
+        canvas.clearRect(0, 0, ctx.width, ctx.height);
+        
+        // "Veri yok" mesajı göster
+        canvas.fillStyle = '#666';
+        canvas.font = '16px Arial';
+        canvas.textAlign = 'center';
+        canvas.fillText('Henüz etiket verisi yok', ctx.width / 2, ctx.height / 2);
     }
 
     createLabelChart(labelStats) {
         const ctx = document.getElementById('labelChart');
         if (!ctx || !labelStats || labelStats.length === 0) {
             console.log('📊 Chart oluşturulamadı - veri yok');
+            this.showNoDataMessage();
             return;
         }
         
@@ -429,6 +725,11 @@ class SimpleDashboard {
             '#EC4899', '#06B6D4', '#84CC16', '#F97316', '#6366F1',
             '#14B8A6', '#F43F5E', '#8B5A2B', '#64748B', '#0EA5E9'
         ];
+        
+        // Önceki chart'ı temizle
+        if (this.labelChart) {
+            this.labelChart.destroy();
+        }
         
         this.labelChart = new Chart(ctx, {
             type: 'pie',
@@ -478,6 +779,34 @@ class SimpleDashboard {
         
         const index = labelStats.findIndex(stat => stat.label === label);
         return colors[index % colors.length];
+    }
+
+    clearChart() {
+        console.log('🧹 Chart temizleniyor...');
+        
+        // Chart'ı destroy et
+        if (this.labelChart) {
+            this.labelChart.destroy();
+            this.labelChart = null;
+        }
+        
+        // Chart başlığını güncelle
+        const chartTitle = document.getElementById('chartTitle');
+        if (chartTitle) {
+            chartTitle.textContent = 'Proje Seçin';
+        }
+        
+        // Proje istatistiklerini temizle
+        const projectStats = document.getElementById('projectStats');
+        if (projectStats) {
+            projectStats.innerHTML = '<p class="no-data">Proje seçin</p>';
+        }
+        
+        // Chart container'ı temizle
+        const chartContainer = document.getElementById('chartContainer');
+        if (chartContainer) {
+            chartContainer.innerHTML = '<canvas id="labelChart" width="400" height="300"></canvas>';
+        }
     }
 
     async loadProjectSummary() {
@@ -732,7 +1061,6 @@ class SimpleDashboard {
         console.log('🔧 Buton oluşturuldu, event listener ekleniyor...');
         
         electronButton.addEventListener('click', async () => {
-            alert('Buton tıklandı!'); // Debug
             console.log('📁 Klasör seçimi başlatılıyor...');
             await this.selectFolderWithElectron();
         });
@@ -865,6 +1193,12 @@ class SimpleDashboard {
             console.log('🔧 folderPathText değeri:', folderPathText.value);
             console.log('🔧 folderPathText element ID:', folderPathText.id);
             console.log('🔧 folderPathText element class:', folderPathText.className);
+            
+            // Değerin gerçekten atandığını doğrula
+            setTimeout(() => {
+                const verifyValue = document.getElementById('projectFolderPathText').value;
+                console.log('🔧 100ms sonra folderPathText değeri:', verifyValue);
+            }, 100);
         } else {
             console.error('❌ folderPathText elementi bulunamadı!');
         }
@@ -1201,14 +1535,52 @@ Alternatif olarak:
                     this.showToast('Etiketleme uygulamasına geçilemedi: ' + result.error, 'error');
                 }
             } else {
-                // Fallback: Sayfa yönlendirme
-                window.location.href = '../labeling-app/index.html';
+                // 🆕 Fallback: Sayfa yönlendirme - uzak server bilgilerini URL'ye ekle
+                let labelingAppURL = '../labeling-app/index.html';
+                
+                // Eğer uzak server kullanılıyorsa URL'ye parametre ekle
+                const savedIP = localStorage.getItem('serverIP');
+                const isRemoteServer = localStorage.getItem('isRemoteServer');
+                
+                if (savedIP && isRemoteServer === 'true') {
+                    labelingAppURL += `?server=${savedIP}`;
+                    
+                }
+                
+                window.location.href = labelingAppURL;
             }
         } catch (error) {
             console.error('❌ Etiketleme uygulamasına geçiş hatası:', error);
             this.showToast('Etiketleme uygulamasına geçilemedi', 'error');
         }
     }
+
+    // 🆕 Kaydedilmiş server bilgilerini modal'a yükle
+    loadSavedServerInfo() {
+        const savedIP = localStorage.getItem('serverIP');
+        const savedPort = localStorage.getItem('serverPort');
+        const isRemoteServer = localStorage.getItem('isRemoteServer');
+        
+        if (savedIP && savedPort) {
+            
+            // Input alanlarını doldur
+            const serverIPInput = document.getElementById('serverIP');
+            const serverPortInput = document.getElementById('serverPort');
+            
+            if (serverIPInput) serverIPInput.value = savedIP;
+            if (serverPortInput) serverPortInput.value = savedPort;
+            
+            // Eğer uzak server kullanılıyorsa uzak server modunu seç
+            if (isRemoteServer === 'true') {
+                const remoteRadio = document.querySelector('input[name="connectionMode"][value="remote"]');
+                if (remoteRadio) {
+                    remoteRadio.checked = true;
+                    this.toggleConnectionMode('remote');
+                }
+            }
+        }
+    }
+
     // Server Connection Functions
     setupServerConnectionEvents() {
         // Server connection modal açma
@@ -1244,11 +1616,219 @@ Alternatif olarak:
         document.getElementById('connectRemoteServerBtn').addEventListener('click', () => {
             this.connectRemoteServer();
         });
+
+        // 🆕 Input validasyonları
+        this.setupInputValidations();
+
+        // 🆕 Bağlantıyı temizle butonu (sağ tık menüsü veya uzun basma)
+        document.getElementById('serverConnectBtn').addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            this.clearConnectionAndReload();
+        });
+
+        // Uzun basma ile bağlantıyı temizle
+        let pressTimer = null;
+        document.getElementById('serverConnectBtn').addEventListener('mousedown', (e) => {
+            pressTimer = setTimeout(() => {
+                this.clearConnectionAndReload();
+            }, 2000); // 2 saniye uzun basma
+        });
+
+        document.getElementById('serverConnectBtn').addEventListener('mouseup', () => {
+            clearTimeout(pressTimer);
+        });
+
+        document.getElementById('serverConnectBtn').addEventListener('mouseleave', () => {
+            clearTimeout(pressTimer);
+        });
+    }
+
+    // 🆕 Input validasyonları
+    setupInputValidations() {
+        const serverIPInput = document.getElementById('serverIP');
+        const serverPortInput = document.getElementById('serverPort');
+
+        // IP input validasyonu
+        if (serverIPInput) {
+            serverIPInput.addEventListener('input', (e) => {
+                this.validateIPInput(e);
+            });
+
+            serverIPInput.addEventListener('keypress', (e) => {
+                this.validateIPKeypress(e);
+            });
+
+            serverIPInput.addEventListener('paste', (e) => {
+                e.preventDefault();
+                const paste = (e.clipboardData || window.clipboardData).getData('text');
+                const cleanIP = this.cleanIPInput(paste);
+                if (cleanIP) {
+                    e.target.value = cleanIP;
+                }
+            });
+        }
+
+        // Port input validasyonu
+        if (serverPortInput) {
+            serverPortInput.addEventListener('input', (e) => {
+                this.validatePortInput(e);
+            });
+
+            serverPortInput.addEventListener('keypress', (e) => {
+                this.validatePortKeypress(e);
+            });
+        }
+    }
+
+    // IP input validasyonu
+    validateIPInput(e) {
+        let value = e.target.value;
+        
+        // Sadece sayı ve nokta karakterlerine izin ver
+        value = value.replace(/[^0-9.]/g, '');
+        
+        // Çoklu nokta kontrolü
+        const dots = value.split('.').length - 1;
+        if (dots > 3) {
+            value = value.replace(/\.+$/, '.');
+        }
+        
+        // Her segment için maksimum 3 karakter
+        const segments = value.split('.');
+        for (let i = 0; i < segments.length; i++) {
+            if (segments[i].length > 3) {
+                segments[i] = segments[i].substring(0, 3);
+            }
+            // Her segment 0-255 arasında olmalı
+            const num = parseInt(segments[i]);
+            if (!isNaN(num) && num > 255) {
+                segments[i] = '255';
+            }
+        }
+        
+        value = segments.join('.');
+        e.target.value = value;
+    }
+
+    // IP keypress validasyonu
+    validateIPKeypress(e) {
+        const char = String.fromCharCode(e.which);
+        
+        // Sadece sayı ve nokta karakterlerine izin ver
+        if (!/[0-9.]/.test(char)) {
+            e.preventDefault();
+            return false;
+        }
+        
+        // Nokta kontrolü
+        if (char === '.') {
+            const currentValue = e.target.value;
+            const dots = currentValue.split('.').length - 1;
+            
+            // Maksimum 3 nokta
+            if (dots >= 3) {
+                e.preventDefault();
+                return false;
+            }
+            
+            // Ardışık nokta kontrolü
+            if (currentValue.endsWith('.')) {
+                e.preventDefault();
+                return false;
+            }
+        }
+        
+        return true;
+    }
+
+    // Port input validasyonu
+    validatePortInput(e) {
+        let value = e.target.value;
+        
+        // Sadece sayı karakterlerine izin ver
+        value = value.replace(/[^0-9]/g, '');
+        
+        // Maksimum 65535
+        const num = parseInt(value);
+        if (!isNaN(num) && num > 65535) {
+            value = '65535';
+        }
+        
+        e.target.value = value;
+    }
+
+    // Port keypress validasyonu
+    validatePortKeypress(e) {
+        const char = String.fromCharCode(e.which);
+        
+        // Sadece sayı karakterlerine izin ver
+        if (!/[0-9]/.test(char)) {
+            e.preventDefault();
+            return false;
+        }
+        
+        // Maksimum 5 karakter (65535)
+        if (e.target.value.length >= 5) {
+            e.preventDefault();
+            return false;
+        }
+        
+        return true;
+    }
+
+    // IP input temizleme (paste için)
+    cleanIPInput(input) {
+        // Sadece sayı ve nokta karakterlerini tut
+        let clean = input.replace(/[^0-9.]/g, '');
+        
+        // Çoklu nokta kontrolü
+        const dots = clean.split('.').length - 1;
+        if (dots > 3) {
+            clean = clean.replace(/\.+$/, '.');
+        }
+        
+        // Her segment için maksimum 3 karakter ve 0-255 aralığı
+        const segments = clean.split('.');
+        for (let i = 0; i < segments.length; i++) {
+            if (segments[i].length > 3) {
+                segments[i] = segments[i].substring(0, 3);
+            }
+            const num = parseInt(segments[i]);
+            if (!isNaN(num) && num > 255) {
+                segments[i] = '255';
+            }
+        }
+        
+        return segments.join('.');
+    }
+
+    // 🆕 IP adresi format validasyonu
+    isValidIP(ip) {
+        // IPv4 format kontrolü
+        const ipv4Regex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+        
+        if (!ipv4Regex.test(ip)) {
+            return false;
+        }
+        
+        // Her segment 0-255 arasında olmalı
+        const segments = ip.split('.');
+        for (const segment of segments) {
+            const num = parseInt(segment);
+            if (isNaN(num) || num < 0 || num > 255) {
+                return false;
+            }
+        }
+        
+        return true;
     }
 
     openServerModal() {
         const modal = document.getElementById('serverModal');
         modal.style.display = 'block';
+        
+        // 🆕 Kaydedilmiş uzak server bilgilerini yükle
+        this.loadSavedServerInfo();
         
         // Yerel server durumunu kontrol et
         this.checkLocalServerStatus();
@@ -1285,15 +1865,18 @@ Alternatif olarak:
         statusElement.className = 'status-indicator checking';
         
         try {
-            const response = await fetch(`${this.baseURL}/health`);
+            // Önce mevcut baseURL'i kontrol et
+            const response = await fetch(`${this.baseURL}/api/health`);
             if (response.ok) {
                 statusElement.innerHTML = '<i class="fas fa-circle"></i> Server çalışıyor';
                 statusElement.className = 'status-indicator connected';
                 startBtn.style.display = 'none';
+                console.log('✅ Server durumu: Çalışıyor');
             } else {
                 throw new Error('Server yanıt vermiyor');
             }
         } catch (error) {
+            console.log('❌ Server durumu: Çalışmıyor', error.message);
             statusElement.innerHTML = '<i class="fas fa-circle"></i> Server çalışmıyor';
             statusElement.className = 'status-indicator disconnected';
             startBtn.style.display = 'block';
@@ -1312,6 +1895,9 @@ Alternatif olarak:
             const result = await window.electronAPI?.startBackend();
             
             if (result?.success) {
+                // Server durumunu güncelle
+                this.updateConnectionStatus('connected', 'Yerel Server: localhost:3000');
+                
                 this.showToast('Server başarıyla başlatıldı', 'success');
                 await this.checkLocalServerStatus();
             } else {
@@ -1326,11 +1912,24 @@ Alternatif olarak:
     }
 
     async connectRemoteServer() {
-        const serverIP = document.getElementById('serverIP').value;
-        const serverPort = document.getElementById('serverPort').value;
+        const serverIP = document.getElementById('serverIP').value.trim();
+        const serverPort = document.getElementById('serverPort').value.trim();
         
         if (!serverIP || !serverPort) {
             this.showToast('Lütfen IP adresi ve port girin', 'error');
+            return;
+        }
+
+        // 🆕 IP format validasyonu
+        if (!this.isValidIP(serverIP)) {
+            this.showToast('Geçersiz IP adresi formatı. Örnek: 192.168.1.100', 'error');
+            return;
+        }
+
+        // 🆕 Port validasyonu
+        const portNum = parseInt(serverPort);
+        if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+            this.showToast('Port numarası 1-65535 arasında olmalıdır', 'error');
             return;
         }
         
@@ -1342,12 +1941,38 @@ Alternatif olarak:
         
         try {
             const testURL = `http://${serverIP}:${serverPort}/api/health`;
-            const response = await fetch(testURL);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 saniye timeout
+            
+            const response = await fetch(testURL, {
+                signal: controller.signal,
+                method: 'GET',
+                mode: 'cors',
+                cache: 'no-cache'
+            });
+            
+            clearTimeout(timeoutId);
             
             if (response.ok) {
                 // Bağlantı başarılı, baseURL'i güncelle
                 this.baseURL = `http://${serverIP}:${serverPort}/api`;
                 this.serverIP = serverIP;
+                this.isServerRunning = true;
+                
+                // 🆕 Uzak server bilgilerini localStorage'a kaydet
+                localStorage.setItem('serverIP', serverIP);
+                localStorage.setItem('serverPort', serverPort);
+                localStorage.setItem('isRemoteServer', 'true');
+                localStorage.setItem('lastConnectedServer', JSON.stringify({
+                    ip: serverIP,
+                    port: serverPort,
+                    timestamp: Date.now()
+                }));
+                
+                console.log('💾 Uzak server bilgileri kaydedildi:', { serverIP, serverPort });
+                
+                // Server durumunu güncelle
+                this.updateConnectionStatus('connected', `Uzak Server: ${serverIP}:${serverPort}`);
                 
                 this.showToast(`Uzak servera başarıyla bağlandı: ${serverIP}:${serverPort}`, 'success');
                 this.closeServerModal();
@@ -1360,7 +1985,21 @@ Alternatif olarak:
                 throw new Error('Server yanıt vermiyor');
             }
         } catch (error) {
-            this.showToast(`Uzak servera bağlanılamadı: ${error.message}`, 'error');
+            let errorMessage = 'Bilinmeyen hata';
+            
+            if (error.name === 'AbortError') {
+                errorMessage = 'Bağlantı zaman aşımına uğradı (5 saniye)';
+            } else if (error.message.includes('ERR_CONNECTION_TIMED_OUT')) {
+                errorMessage = 'Bağlantı zaman aşımına uğradı - server yanıt vermiyor';
+            } else if (error.message.includes('ERR_NETWORK')) {
+                errorMessage = 'Ağ hatası - server erişilemiyor';
+            } else if (error.message.includes('Failed to fetch')) {
+                errorMessage = 'Bağlantı kurulamadı - server çalışmıyor olabilir';
+            } else {
+                errorMessage = error.message;
+            }
+            
+            this.showToast(`Uzak servera bağlanılamadı: ${errorMessage}`, 'error');
         } finally {
             connectBtn.innerHTML = originalText;
             connectBtn.disabled = false;
@@ -1452,18 +2091,24 @@ Alternatif olarak:
             toast.remove();
         }, 3000);
     }
+        } // SimpleDashboard class sonu
+    } // Duplicate declaration prevention sonu
+
+// Dashboard initialization - Duplicate prevention
+if (typeof window.dashboardInitialized === 'undefined') {
+    window.dashboardInitialized = true;
+    
+    document.addEventListener('DOMContentLoaded', () => {
+        console.log('📄 DOM yüklendi, SimpleDashboard başlatılıyor...');
+        try {
+            if (window.SimpleDashboard) {
+                window.simpleDashboard = new window.SimpleDashboard();
+                console.log('✅ SimpleDashboard başarıyla oluşturuldu');
+            } else {
+                console.error('❌ SimpleDashboard class bulunamadı');
+            }
+        } catch (error) {
+            console.error('❌ SimpleDashboard oluşturulurken hata:', error);
+        }
+    });
 }
-
-// Global değişken
-let simpleDashboard;
-
-// Dashboard'ı başlat
-document.addEventListener('DOMContentLoaded', () => {
-    console.log('📄 DOM yüklendi, SimpleDashboard başlatılıyor...');
-    try {
-        simpleDashboard = new SimpleDashboard();
-        console.log('✅ SimpleDashboard başarıyla oluşturuldu');
-    } catch (error) {
-        console.error('❌ SimpleDashboard oluşturulurken hata:', error);
-    }
-});

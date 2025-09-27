@@ -10,16 +10,9 @@ class LabelingTool {
         // window.location.hostname kullan
         const hostname = window.location.hostname;
         
-        // Eğer hostname boş veya geçersizse localhost kullan
-        if (!hostname || hostname === '' || hostname === 'null' || hostname === 'undefined') {
-            console.log('⚠️ Hostname boş, localhost kullanılıyor');
-            return `http://localhost:3000/api`;
-        }
-        
-        // Eğer localhost ise, bilinen IP adresini kullan
+        // Eğer localhost ise, localhost kullan
         if (hostname === 'localhost' || hostname === '127.0.0.1') {
-            // Bilinen IP adresini kullan
-            return `http://10.10.1.22:3000/api`;
+            return `http://localhost:3000/api`;
         }
         
         // Diğer durumlarda window.location.hostname kullan
@@ -54,7 +47,10 @@ class LabelingTool {
         this.labelCaseMode = 'original'; // Etiket harf durumu: 'original', 'uppercase', 'lowercase'
         this.exportFolderPath = null; // Export klasörü yolu
         this.isSaved = true; // Kaydetme durumu (başlangıçta kaydedilmiş)
-        this.snowTextureCache = null; // Kar texture cache'i
+        
+        // İmleç sistemi
+        this.canvasContainer = document.getElementById('imageContainer');
+        this.currentCursorMode = 'default'; // default, canvas, creating, focusing, resizing, hovering
         
         // Undo/Redo sistemi
         this.history = []; // İşlem geçmişi
@@ -114,39 +110,14 @@ class LabelingTool {
         this.isDraggingAnnotation = false; // Annotation sürükleniyor mu?
         this.dragStartPos = null; // Sürükleme başlangıç pozisyonu
         
-        // Initialize modules
-        console.log('🚀 CanvasManager başlatılıyor...');
-        if (window.CanvasManager) {
-            this.canvasManager = new CanvasManager(this);
-            console.log('✅ CanvasManager başlatıldı');
-        } else {
-            console.error('❌ CanvasManager bulunamadı!');
-        }
+        // Initialize modules - Optimized loading order
+        this.initializeModules();
+    }
+    
+    initializeModules() {
+        console.log('🔧 Modüller initialize ediliyor...');
         
-        console.log('🚀 AnnotationManager başlatılıyor...');
-        if (window.AnnotationManager) {
-            this.annotationManager = new AnnotationManager(this);
-            console.log('✅ AnnotationManager başlatıldı');
-        } else {
-            console.error('❌ AnnotationManager bulunamadı!');
-        }
-        
-        console.log('🚀 ExportManager başlatılıyor...');
-        
-        // ExportManager'ın yüklenmesini bekle
-        const initExportManager = () => {
-        if (window.ExportManager) {
-            this.exportManager = new ExportManager(this);
-            console.log('✅ ExportManager başlatıldı');
-        } else {
-            console.error('❌ ExportManager bulunamadı!');
-                // 100ms sonra tekrar dene
-                setTimeout(initExportManager, 100);
-        }
-        };
-        
-        initExportManager();
-        
+        // 1. UtilityManager (No dependencies)
         console.log('🚀 UtilityManager başlatılıyor...');
         if (window.UtilityManager) {
             this._utilityManager = new UtilityManager(this);
@@ -155,18 +126,98 @@ class LabelingTool {
             console.error('❌ UtilityManager bulunamadı!');
         }
         
-        // Auth objesini initialize et - LabelingAuth kullan
-        if (!window.labelingAuth) {
-            console.log('🔧 Auth objesi initialize ediliyor...');
-            window.labelingAuth = new LabelingAuth();
-            console.log('✅ Auth objesi initialize edildi:', window.labelingAuth);
+        // 2. CanvasManager (Depends on UtilityManager)
+        console.log('🚀 CanvasManager başlatılıyor...');
+        if (window.CanvasManager) {
+            this.canvasManager = new CanvasManager(this);
+            console.log('✅ CanvasManager başlatıldı');
+        } else {
+            console.error('❌ CanvasManager bulunamadı!');
         }
         
-        // Image Manager'ı başlat
+        // 3. AnnotationManager (Depends on CanvasManager)
+        console.log('🚀 AnnotationManager başlatılıyor...');
+        if (window.AnnotationManager) {
+            this.annotationManager = new AnnotationManager(this);
+            console.log('✅ AnnotationManager başlatıldı');
+        } else {
+            console.error('❌ AnnotationManager bulunamadı!');
+        }
+        
+        // 4. ExportManager (Depends on all above)
+        console.log('🚀 ExportManager başlatılıyor...');
+        if (window.ExportManager) {
+            this.exportManager = new ExportManager(this);
+            console.log('✅ ExportManager başlatıldı');
+        } else {
+            console.error('❌ ExportManager bulunamadı!');
+        }
+        
+        // Auth objesini initialize et
+        if (!window.labelingAuth) {
+            console.log('🔧 Auth objesi initialize ediliyor...');
+            window.labelingAuth = {
+                baseURL: this.getServerURL(),
+                isLoggedIn: () => true,
+                getProjects: async () => {
+                    const response = await fetch(`${this.baseURL}/projects`);
+                    return response.ok ? await response.json() : [];
+                },
+                setUserAndProject: (user, projectId) => {
+                    console.log('🔧 setUserAndProject çağrıldı:', user, projectId);
+                },
+                authenticatedRequest: async (url, options = {}) => {
+                    return fetch(url, {
+                        ...options,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...options.headers
+                        }
+                    });
+                },
+                makeRequest: async (url, options = {}) => {
+                    return fetch(url, {
+                        ...options,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...options.headers
+                        }
+                    });
+                },
+                getCurrentProject: () => {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    return urlParams.get('project');
+                }
+            };
+            console.log('✅ Auth objesi initialize edildi');
+        }
+        
+        // Image Manager'ı başlat - Geliştirilmiş kontrol
         if (typeof ImageManager === 'undefined') {
             console.error('❌ ImageManager sınıfı yüklenmedi!');
             throw new Error('ImageManager sınıfı yüklenmedi. Lütfen sayfayı yenileyin.');
         }
+        
+        // Tüm modüllerin yüklendiğini kontrol et
+        const requiredModules = ['CanvasManager', 'AnnotationManager', 'ExportManager', 'UtilityManager'];
+        const missingModules = requiredModules.filter(module => !window[module]);
+        
+        if (missingModules.length > 0) {
+            console.warn('⚠️ Eksik modüller:', missingModules);
+            console.log('🔄 Modüller yüklenene kadar bekleniyor...');
+            
+            // Modüller yüklenene kadar bekle
+            setTimeout(() => {
+                this.initializeImageManager();
+            }, 100);
+            return;
+        }
+        
+        this.initializeImageManager();
+    }
+    
+    initializeImageManager() {
+        console.log('🚀 ImageManager başlatılıyor...');
         this.imageManager = new ImageManager(window.labelingAuth);
         
         this.setupEventListeners();
@@ -174,6 +225,9 @@ class LabelingTool {
         this.setupFavoriteLabelListeners();
         this.resizeCanvas();
         this.migrateAnnotationsColors();
+        
+        // İmleç sistemini başlat
+        this.setupCursorSystem();
         
         // İlk history kaydını yap
         this.saveToHistory();
@@ -369,7 +423,7 @@ class LabelingTool {
             console.log('📁 Proje yükleniyor:', projectId);
             
             // Proje bilgilerini al (auth bypass)
-            const response = await fetch(`${this.getServerURL()}/projects/${projectId}`);
+            const response = await fetch(`http://${window.location.hostname}:3000/api/projects/${projectId}`);
             const project = await response.json();
             
             if (project) {
@@ -662,39 +716,26 @@ class LabelingTool {
                 annotationsCount: this.annotations.length
             });
 
-            // Önce mevcut etiketleri sil
-            await window.labelingAuth.authenticatedRequest(
-                `${this.getServerURL()}/images/${window.imageManager.currentImage.id}/annotations`,
+            // Önce mevcut etiketleri sil (auth bypass)
+            await fetch(
+                `http://${window.location.hostname}:3000/api/images/${window.imageManager.currentImage.id}/annotations`,
                 { method: 'DELETE' }
             );
 
-            // Tüm etiketleri toplu olarak kaydet
+            // Tüm etiketleri toplu olarak kaydet (doğru format)
             if (this.annotations.length > 0) {
-                const formattedAnnotations = this.annotations.map(annotation => {
-                    const formatted = {
-                        id: annotation.id,
-                        label: annotation.label,
-                        type: annotation.type,
-                        color: annotation.color,
-                        x: annotation.x,
-                        y: annotation.y,
-                        width: annotation.width,
-                        height: annotation.height
-                    };
-                    
-                    if (annotation.points && annotation.points.length > 0) {
-                        formatted.points = annotation.points;
-                        formatted.type = 'polygon';
+                const annotationData = {
+                    annotation_data: {
+                        annotations: this.annotations // Array olarak gönder
                     }
-                    
-                    return formatted;
-                });
+                };
 
-                const response = await window.labelingAuth.authenticatedRequest(
-                    `${this.getServerURL()}/images/${window.imageManager.currentImage.id}/annotations`,
+                const response = await fetch(
+                    `http://${window.location.hostname}:3000/api/images/${window.imageManager.currentImage.id}/annotations`,
                     {
                         method: 'POST',
-                        body: JSON.stringify({ annotations: formattedAnnotations })
+                        body: JSON.stringify(annotationData),
+                        headers: { 'Content-Type': 'application/json' }
                     }
                 );
 
@@ -768,8 +809,12 @@ class LabelingTool {
             });
 
             // Auth bypass - basit fetch kullan
+            const projectId = typeof window.imageManager.currentProject === 'object' 
+                ? window.imageManager.currentProject.id 
+                : window.imageManager.currentProject;
+                
             const response = await fetch(
-                `${this.getServerURL()}/projects/${window.imageManager.currentProject}`, 
+                `http://${window.location.hostname}:3000/api/projects/${projectId}`, 
                 {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
@@ -789,6 +834,25 @@ class LabelingTool {
             console.error('❌ Proje kaydetme hatası:', error);
             this.showError('Proje kaydetme hatası: ' + error.message);
         }
+    }
+
+    setupCursorSystem() {
+        console.log('🎯 İmleç sistemi başlatılıyor...');
+        
+        // Canvas container'ı bul
+        this.canvasContainer = document.getElementById('imageContainer');
+        if (!this.canvasContainer) {
+            console.warn('⚠️ Canvas container bulunamadı');
+            return;
+        }
+        
+        // İmleç modunu başlat
+        this.currentCursorMode = 'default';
+        
+        // CSS sınıflarını ekle
+        this.canvasContainer.classList.add('canvas-container');
+        
+        console.log('✅ İmleç sistemi başlatıldı');
     }
 
     setupEventListeners() {
@@ -2198,14 +2262,14 @@ class LabelingTool {
             return;
         }
 
-        // Orijinal veriyi kopyala (her seferinde temiz orijinal veri kullan)
+        // Orijinal veriyi kopyala
         const imageData = new ImageData(
             new Uint8ClampedArray(this.originalImageData.data),
             this.originalImageData.width,
             this.originalImageData.height
         );
 
-        // Her aktif filtreyi uygula (sadece bir kez, orijinal veri üzerinde)
+        // Her aktif filtreyi uygula
         this.activeFilters.forEach(filterType => {
             this.applyWeatherFilter(imageData, filterType);
         });
@@ -2280,15 +2344,15 @@ class LabelingTool {
 
             console.log('🌤️ Weather filter yükleniyor, Image ID:', imageId);
 
-            const response = await window.labelingAuth.authenticatedRequest(`${this.getServerURL()}/images/${imageId}/weather-filter`);
+            const baseURL = this.getServerURL();
+            const response = await window.labelingAuth.authenticatedRequest(`${baseURL}/images/${imageId}/weather-filter`);
             
             if (response.ok) {
                 const result = await response.json();
+                console.log('🌤️ Weather filter response:', result);
+                
                 if (result.weatherFilter && result.weatherFilter.filter_data) {
-                    // filter_data JSON string olarak geliyor, parse et
-                    const filterData = typeof result.weatherFilter.filter_data === 'string' 
-                        ? JSON.parse(result.weatherFilter.filter_data) 
-                        : result.weatherFilter.filter_data;
+                    const filterData = JSON.parse(result.weatherFilter.filter_data);
                     console.log('✅ Weather filter yüklendi:', filterData);
                     
                     // null, "null" veya boş değerleri kontrol et
@@ -2330,7 +2394,7 @@ class LabelingTool {
         }
         
         this.updateWeatherFilterUI();
-                this.redraw();
+        this.redraw();
         // clearWeatherFilter'da backend'e kaydetme, sadece UI'yi temizle
     }
 
@@ -3014,149 +3078,96 @@ class LabelingTool {
         }
     }
 
-    // Yağmurlu hava filtresi (daha gerçekçi ve ince efektler)
+    // 🌧️ YAĞMURLU HAVA FİLTRESİ (Gerçekçi yağmur damlaları ile)
     applyRainyFilter(data) {
-        // Orijinal resim boyutlarını kullan (zoom'dan bağımsız)
-        const width = this.originalImageInfo ? this.originalImageInfo.width : this.canvas.width;
-        const height = this.originalImageInfo ? this.originalImageInfo.height : this.canvas.height;
+        const width = this.canvas.width;
+        const height = this.canvas.height;
         
-        // Önce atmosferik renk ayarlamalarını uygula (daha ince)
+        // Önce orijinal renk ayarlamalarını uygula (soğuk, nemli atmosfer)
         for (let i = 0; i < data.length; i += 4) {
             let r = data[i];
             let g = data[i + 1];
             let b = data[i + 2];
             
-            // Hafif soğuk ton (yağmurlu atmosfer)
-            r *= 0.95;
-            g *= 0.97;
-            b = Math.min(255, b * 1.05);
+            // Soğuk, nemli atmosfer
+            r *= 0.8;
+            g *= 0.85;
+            b = Math.min(255, b * 1.1);
             
-            // Hafif desatürasyon (yağmur renkleri biraz sönükleştirir)
+            // Saturation azaltma (yağmur renkleri sönükleştirir)
             const avg = (r + g + b) / 3;
-            r = r * 0.9 + avg * 0.1;
-            g = g * 0.9 + avg * 0.1;
-            b = b * 0.9 + avg * 0.1;
+            r = r * 0.7 + avg * 0.3;
+            g = g * 0.7 + avg * 0.3;
+            b = b * 0.7 + avg * 0.3;
             
-            // Çok hafif karartma
-            r *= 0.95;
-            g *= 0.95;
-            b *= 0.97;
+            // Genel karartma
+            r *= 0.85;
+            g *= 0.85;
+            b *= 0.9;
             
             data[i] = Math.max(0, Math.min(255, r));
             data[i + 1] = Math.max(0, Math.min(255, g));
             data[i + 2] = Math.max(0, Math.min(255, b));
         }
 
-        // Şimdi gerçekçi yağmur damlaları piksel bazında entegre et
+        // Şimdi gerçekçi yağmur damlaları/çizgileri ekle
         this.addRainDrops(data, width, height);
     }
 
-    // Yağmur damlaları ekleme fonksiyonu (gerçekçi damla şekilleri ve refraksiyon simülasyonu)
+    // Yağmur damlaları ekleme fonksiyonu
     addRainDrops(data, width, height) {
-        // Yağmur yoğunluğunu ayarla (daha doğal dağılım için artır ama alpha azalt)
-        const numDrops = Math.floor(width * height * 0.0005); // Azaltılmış yoğunluk
+        // Resim alanını hesapla (zoom ve pan'i dikkate al)
+        const imageRect = this.getImageRect();
+        if (!imageRect) return;
         
-        const minSize = 2; // Min damla yarıçapı
-        const maxSize = 6; // Max damla yarıçapı (daha küçük, doğal)
-        const dropAlphaBase = 0.15; // Temel şeffaflık (daha hafif)
-        const refractionStrength = 0.15; // Refraksiyon etkisi gücü (yarıya indirildi)
+        // Yağmur yoğunluğunu resim alanına göre ayarla
+        const rainDensity = 0.001; // Piksel başına yağmur damlası sayısı
+        const imagePixels = imageRect.width * imageRect.height;
+        const numDrops = Math.floor(imagePixels * rainDensity);
         
-        for (let i = 0; i < numDrops; i++) {
-            const centerX = Math.floor(Math.random() * width);
-            const centerY = Math.floor(Math.random() * height);
-            const size = Math.floor(Math.random() * (maxSize - minSize + 1) + minSize);
-            const alphaVariation = Math.random() * 0.1 + dropAlphaBase; // Hafif varyasyon
-            
-            // Damla için elips/damla şekli simüle et (basit daire + dikey uzama)
-            const aspectRatio = 1.5; // Dikey uzama için (yağmur düşüş hissi)
-            
-            // Damla içindeki pikselleri işle
-            for (let dy = -size * aspectRatio; dy <= size * aspectRatio; dy++) {
-                for (let dx = -size; dx <= size; dx++) {
-                    // Elips içinde mi? (uzatılmış daire)
-                    if ((dx * dx) / (size * size) + (dy * dy) / (size * size * aspectRatio * aspectRatio) <= 1) {
-                        const x = Math.floor(centerX + dx);
-                        const y = Math.floor(centerY + dy);
-                        
-                        if (x >= 0 && x < width && y >= 0 && y < height) {
-                            const index = (y * width + x) * 4;
-                            
-                            // Basit refraksiyon simülasyonu - daha ince ve güvenli
-                            const offsetX = Math.floor(dx * -refractionStrength * 0.5); // Gücü yarıya indir
-                            const offsetY = Math.floor(dy * -refractionStrength * 0.5);
-                            const srcX = Math.min(width - 1, Math.max(0, x + offsetX));
-                            const srcY = Math.min(height - 1, Math.max(0, y + offsetY));
-                            const srcIndex = (srcY * width + srcX) * 4;
-                            
-                            // Güvenli piksel okuma - sınırları kontrol et
-                            let r, g, b;
-                            if (srcIndex >= 0 && srcIndex < data.length - 3) {
-                                r = data[srcIndex];
-                                g = data[srcIndex + 1];
-                                b = data[srcIndex + 2];
-                            } else {
-                                // Güvenli fallback - mevcut pikseli kullan
-                                r = data[index];
-                                g = data[index + 1];
-                                b = data[index + 2];
-                            }
-                            
-                        // Hafif mavi ton ve parlaklık artır (su yansıması) - daha ince
-                        b = Math.min(255, b * 1.03);
-                        const brightnessBoost = 1.02;
-                        r *= brightnessBoost;
-                        g *= brightnessBoost;
-                        b *= brightnessBoost;
-                            
-                            // Mevcut piksel ile refrakte edilmiş rengi blend et (screen blending benzeri)
-                            data[index] = Math.min(255, data[index] + (r - data[index]) * alphaVariation);
-                            data[index + 1] = Math.min(255, data[index + 1] + (g - data[index + 1]) * alphaVariation);
-                            data[index + 2] = Math.min(255, data[index + 2] + (b - data[index + 2]) * alphaVariation);
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Blur efektini kaldır - sürekli uygulanması "hayalet" efekti yaratıyor
-        // this.applyLightBlur(data, width, height);
-    }
+        const dropColor = { r: 180, g: 200, b: 255 }; // Biraz daha mavi ton
+        const dropAlpha = 0.3; // Daha şeffaf, gerçekçi
+        const minLength = 12; // Orta uzunluk
+        const maxLength = 20; // Biraz daha uzun ama çok değil
+        const angle = Math.PI / 6; // Eğik yağmur için açı (30 derece)
 
-    // Hafif bulanıklık fonksiyonu (Gaussian benzeri 3x3 blur, güç parametreli)
-    applyLightBlur(data, width, height, strength = 1) {
-        const tempData = new Uint8ClampedArray(data); // Kopya al
-        const kernel = [1, 2, 1, 2, 4, 2, 1, 2, 1]; // Basit Gaussian kernel
-        const kernelSum = kernel.reduce((a, b) => a + b, 0);
-        
-        for (let y = 1; y < height - 1; y++) {
-            for (let x = 1; x < width - 1; x++) {
-                const index = (y * width + x) * 4;
-                let r = 0, g = 0, b = 0;
-                let k = 0;
+        for (let drop = 0; drop < numDrops; drop++) {
+            // Rastgele başlangıç pozisyonu (sadece resim alanında)
+            const startX = Math.floor(imageRect.x + Math.random() * imageRect.width);
+            const startY = Math.floor(imageRect.y + Math.random() * imageRect.height);
+            
+            // Damla uzunluğu ve yönü
+            const length = Math.floor(Math.random() * (maxLength - minLength) + minLength);
+            const dx = Math.cos(angle); // X yönü değişimi
+            const dy = Math.sin(angle); // Y yönü değişimi
+            
+            // Damla boyunca piksel çiz (basit line drawing)
+            for (let step = 0; step < length; step++) {
+                const x = Math.floor(startX + step * dx);
+                const y = Math.floor(startY + step * dy);
                 
-                // 3x3 kernel uygula
-                for (let dy = -1; dy <= 1; dy++) {
-                    for (let dx = -1; dx <= 1; dx++) {
-                        const nIndex = ((y + dy) * width + (x + dx)) * 4;
-                        const weight = kernel[k++] * strength;
-                        r += tempData[nIndex] * weight;
-                        g += tempData[nIndex + 1] * weight;
-                        b += tempData[nIndex + 2] * weight;
-                    }
+                // Sadece resim alanı içinde çiz
+                if (x >= imageRect.x && x < imageRect.x + imageRect.width && 
+                    y >= imageRect.y && y < imageRect.y + imageRect.height) {
+                    
+                    // Canvas koordinatlarını resim koordinatlarına çevir
+                    const imageX = x - imageRect.x;
+                    const imageY = y - imageRect.y;
+                    const index = (imageY * imageRect.width + imageX) * 4;
+                    
+                    // Mevcut piksel ile blend et (additive blending için basit yöntem)
+                    data[index] = Math.min(255, data[index] * (1 - dropAlpha) + dropColor.r * dropAlpha);
+                    data[index + 1] = Math.min(255, data[index + 1] * (1 - dropAlpha) + dropColor.g * dropAlpha);
+                    data[index + 2] = Math.min(255, data[index + 2] * (1 - dropAlpha) + dropColor.b * dropAlpha);
                 }
-                
-                data[index] = Math.floor(r / (kernelSum * strength));
-                data[index + 1] = Math.floor(g / (kernelSum * strength));
-                data[index + 2] = Math.floor(b / (kernelSum * strength));
             }
         }
     }
 
     // ❄️ KARLI HAVA FİLTRESİ (optimize edilmiş, gerçekçi kar taneleri ile)
     applySnowyFilter(data) {
-        // Orijinal resim boyutlarını kullan (zoom'dan bağımsız)
-        const width = this.originalImageInfo ? this.originalImageInfo.width : this.canvas.width;
-        const height = this.originalImageInfo ? this.originalImageInfo.height : this.canvas.height;
+        const width = this.canvas.width;
+        const height = this.canvas.height;
         
         // Piksel verilerini Float32Array olarak işle (performans için)
         const floatData = new Float32Array(data.length);
@@ -3217,141 +3228,8 @@ class LabelingTool {
             data[i + 2] = Math.min(255, Math.max(0, Math.round(b)));
         }
 
-        // Hazır kar tanesi texture'ını overlay olarak ekle
-        this.addSnowTextureOverlay(data, width, height);
-    }
-
-    // Kar tanesi texture overlay fonksiyonu (hazır PNG kullanarak)
-    addSnowTextureOverlay(data, width, height) {
-        // Hazır PNG dosyasını yükle
-        const snowTexture = this.loadSnowPNG();
-        if (!snowTexture) {
-            console.warn('⚠️ Kar PNG yüklenemedi, fallback kullanılıyor');
-            this.addRealisticSnowflakes(data, width, height);
-            return;
-        }
-
-        // Texture'ı resim boyutuna ölçekle ve uygula
-        const textureCanvas = document.createElement('canvas');
-        const textureCtx = textureCanvas.getContext('2d');
-        textureCanvas.width = width;
-        textureCanvas.height = height;
-        
-        // Texture'ı çiz
-        textureCtx.drawImage(snowTexture, 0, 0, width, height);
-        const textureData = textureCtx.getImageData(0, 0, width, height);
-        
-        // Overlay blending uygula
-        for (let i = 0; i < data.length; i += 4) {
-            const textureR = textureData.data[i];
-            const textureG = textureData.data[i + 1];
-            const textureB = textureData.data[i + 2];
-            const textureA = textureData.data[i + 3];
-            
-            // Sadece beyaz pikselleri (kar taneleri) uygula
-            if (textureR > 200 && textureG > 200 && textureB > 200) {
-                const alpha = (textureA / 255) * 0.4; // Biraz daha görünür
-                
-                // Screen blending ile kar tanesi ekle
-                data[i] = Math.min(255, data[i] + (textureR - data[i]) * alpha);
-                data[i + 1] = Math.min(255, data[i + 1] + (textureG - data[i + 1]) * alpha);
-                data[i + 2] = Math.min(255, data[i + 2] + (textureB - data[i + 2]) * alpha);
-            }
-        }
-    }
-
-    // Hazır PNG dosyasını yükle
-    loadSnowPNG() {
-        // Cache'den kontrol et
-        if (this.snowTextureCache) {
-            return this.snowTextureCache;
-        }
-        
-        // Hazır PNG dosyasını yükle
-        const img = new Image();
-        img.crossOrigin = 'anonymous'; // CORS için
-        img.onload = () => {
-            this.snowTextureCache = img;
-        };
-        img.onerror = () => {
-            console.warn('⚠️ Kar PNG dosyası yüklenemedi');
-            this.snowTextureCache = null;
-        };
-        
-        // PNG dosyasının yolunu belirt
-        img.src = 'image-from-rawpixel-id-12655443-png.png';
-        
-        return img;
-    }
-
-    // Gerçekçi kar taneleri ekleme fonksiyonu (daha ince, doğal ve varyasyonlu)
-    addRealisticSnowflakes(data, width, height) {
-        // Kar yoğunluğunu ayarla (daha doğal dağılım için artır ama alpha azalt)
-        const numFlakes = Math.floor(width * height * 0.0003); // Azaltılmış yoğunluk, daha doğal
-        
-        const minSize = 2; // Min tanecik yarıçapı
-        const maxSize = 4; // Max tanecik yarıçapı (küçük tutuldu)
-        const flakeAlphaBase = 0.12; // Temel şeffaflık (çok hafif)
-        const glowStrength = 0.15; // Hafif parlama etkisi gücü
-        const blurStrength = 0.8; // Bulanıklık gücü (yumuşak kenarlar için)
-        
-        for (let i = 0; i < numFlakes; i++) {
-            const centerX = Math.floor(Math.random() * width);
-            const centerY = Math.floor(Math.random() * height);
-            const size = Math.floor(Math.random() * (maxSize - minSize + 1) + minSize);
-            const alphaVariation = Math.random() * 0.08 + flakeAlphaBase; // Hafif varyasyon
-            const rotation = Math.random() * Math.PI * 2; // Rastgele rotasyon
-            
-            // Kar tanesi için düzensiz/heksagonal şekil simüle et (dallanma ile)
-            const branches = 6; // Heksagonal dallar
-            const branchVariation = Math.random() * 0.3 + 0.7; // Dal uzunluk varyasyonu
-            
-            for (let branch = 0; branch < branches; branch++) {
-                const angle = (Math.PI * 2 / branches) * branch + rotation;
-                const branchLength = size * branchVariation * (0.6 + Math.random() * 0.4);
-                
-                // Dal boyunca pikselleri blend et (yumuşak geçiş için alpha azalarak)
-                for (let step = 0; step < branchLength; step++) {
-                    const fade = 1 - (step / branchLength); // Uçlarda solma
-                    const dx = Math.cos(angle) * step;
-                    const dy = Math.sin(angle) * step;
-                    const x = Math.floor(centerX + dx);
-                    const y = Math.floor(centerY + dy);
-                    
-                    if (x >= 0 && x < width && y >= 0 && y < height) {
-                        const index = (y * width + x) * 4;
-                        
-                        // Hafif parlama simülasyonu: Yakın pikselleri hafifçe aydınlat
-                        let r = data[index];
-                        let g = data[index + 1];
-                        let b = data[index + 2];
-                        
-                        // Beyaz ton ve parlaklık artır (kar yansıması) - daha ince ve doğal
-                        const brightnessBoost = 1.03;
-                        r = Math.min(255, r * brightnessBoost + glowStrength * 180 * fade); // 255 yerine 180
-                        g = Math.min(255, g * brightnessBoost + glowStrength * 190 * fade); // 255 yerine 190
-                        b = Math.min(255, b * brightnessBoost + glowStrength * 200 * fade); // 255 yerine 200, hafif mavi
-                        
-                        // Mevcut piksel ile kar rengini blend et (additive blending)
-                        const effectiveAlpha = alphaVariation * fade;
-                        data[index] = Math.min(255, data[index] + (r - data[index]) * effectiveAlpha);
-                        data[index + 1] = Math.min(255, data[index + 1] + (g - data[index + 1]) * effectiveAlpha);
-                        data[index + 2] = Math.min(255, data[index + 2] + (b - data[index + 2]) * effectiveAlpha);
-                    }
-                }
-            }
-            
-            // Merkez için ekstra yumuşak yoğunluk - daha ince
-            const centerIndex = (centerY * width + centerX) * 4;
-            if (centerIndex >= 0 && centerIndex < data.length - 3) {
-                data[centerIndex] = Math.min(255, data[centerIndex] + 8); // 15 yerine 8
-                data[centerIndex + 1] = Math.min(255, data[centerIndex + 1] + 8); // 15 yerine 8
-                data[centerIndex + 2] = Math.min(255, data[centerIndex + 2] + 10); // 18 yerine 10
-            }
-        }
-        
-        // Hafif genel bulanıklık uygula (gerçekçiliği artırır)
-        this.applyLightBlur(data, width, height, blurStrength);
+        // Kar tanelerini ekle (gerçekçi, rastgele dağılmış, boyut varyasyonlu)
+        this.addOptimizedSnowflakes(data, width, height);
     }
 
     // Optimize edilmiş kar taneleri ekleme fonksiyonu
@@ -3436,9 +3314,8 @@ class LabelingTool {
 
     // 🌙 GECE FİLTRESİ (Optimize edilmiş, gerçekçi gece atmosferi)
     applyNightFilter(data) {
-        // Orijinal resim boyutlarını kullan (zoom'dan bağımsız)
-        const width = this.originalImageInfo ? this.originalImageInfo.width : this.canvas.width;
-        const height = this.originalImageInfo ? this.originalImageInfo.height : this.canvas.height;
+        const width = this.canvas.width;
+        const height = this.canvas.height;
         
         // Piksel verilerini Float32Array ile işle (hassasiyet ve performans için)
         const floatData = new Float32Array(data.length);
@@ -3542,9 +3419,8 @@ class LabelingTool {
     // ❄️ KARLI HAVA FİLTRESİ (gerçekçi kar taneleri ile)
     // Küçük, yoğun ve tutarlı kar taneleri ekleyen filtre:
     applySnowyFilter(data) {
-        // Orijinal resim boyutlarını kullan (zoom'dan bağımsız)
-        const width = this.originalImageInfo ? this.originalImageInfo.width : this.canvas.width;
-        const height = this.originalImageInfo ? this.originalImageInfo.height : this.canvas.height;
+        const width = this.canvas.width;
+        const height = this.canvas.height;
         
         // Önce atmosferik değişiklikleri uygula
         for (let i = 0; i < data.length; i += 4) {
@@ -3598,8 +3474,8 @@ class LabelingTool {
             data[i + 2] = Math.min(255, Math.max(0, b));
         }
 
-        // Gerçekçi kar taneleri ekle
-        this.addRealisticSnowflakes(data, width, height);
+        // Kar tanelerini ekle (fotoğraf boyutundan bağımsız, tutarlı boyut)
+        this.addSnowflakes(data, width, height);
     }
 
     // Kar taneleri ekleme fonksiyonu
@@ -7309,10 +7185,16 @@ class LabelingTool {
     }
 
     async deleteAnnotation(id) {
+        // 🆕 Çoklu silme koruması - aynı annotation'ı birden fazla silmeyi engelle
+        if (this.deletingAnnotations && this.deletingAnnotations.has(id)) {
+            console.log('⚠️ Bu annotation zaten siliniyor, işlem atlanıyor:', id);
+            return;
+        }
+        
         // Silinecek annotation'ı bul
         const annotationToDelete = this.annotations.find(ann => ann.id === id);
-        console.log('Silinecek annotation:', annotationToDelete);
-        console.log('Silme öncesi annotations sayısı:', this.annotations.length);
+        console.log('🗑️ Silinecek annotation:', annotationToDelete);
+        console.log('📊 Silme öncesi annotations sayısı:', this.annotations.length);
         
         // Kilitli annotation'ı silmeyi engelle
         if (annotationToDelete && annotationToDelete.locked) {
@@ -7320,44 +7202,59 @@ class LabelingTool {
             return;
         }
         
-        // Database'den sil (eğer database annotation ID'si varsa)
-        if (annotationToDelete && annotationToDelete.dbId && window.labelingAuth) {
-            try {
-                const response = await window.labelingAuth.authenticatedRequest(
-                    `${window.labelingAuth.baseURL}/annotations/${annotationToDelete.dbId}`,
-                    { method: 'DELETE' }
-                );
-                
-                if (!response.ok) {
-                    console.error('❌ Database\'den etiket silinirken hata:', response.statusText);
-                    this.showToast('Etiket database\'den silinemedi!', 'error');
-                    return;
-                }
-                
-                console.log('✅ Etiket database\'den silindi');
-            } catch (error) {
-                console.error('❌ Database silme hatası:', error);
-                this.showToast('Database bağlantı hatası!', 'error');
-                return;
-            }
-        } else if (annotationToDelete && !annotationToDelete.dbId) {
-            // Eski etiket (dbId yok) - backend'e güncel listeyi gönder
-            console.log('🔄 Eski etiket siliniyor, backend\'e güncel liste gönderiliyor...');
+        // 🆕 Silme işlemini başlat
+        if (!this.deletingAnnotations) {
+            this.deletingAnnotations = new Set();
         }
+        this.deletingAnnotations.add(id);
         
-        // Silinecek annotation'ın etiketini kaydet
+        // 🆕 ANINDA SİLME - Önce frontend'den sil, sonra backend'e gönder
+        console.log('⚡ ANINDA SİLME: Frontend\'den hemen siliniyor...');
+        
+        // Silinen annotation'ın label'ını kaydet
         const deletedLabel = annotationToDelete ? annotationToDelete.label : null;
         
-        // Etiketi frontend'ten sil
+        // Frontend'den hemen sil
         this.annotations = this.annotations.filter(ann => ann.id !== id);
-        console.log('Silme sonrası annotations sayısı:', this.annotations.length);
-        this.isSaved = false; // Annotation silindi, kaydedilmemiş
+        this.isSaved = false;
+        
+        // 🆕 Cache'i temizle - silinen etiket cache'den de silinsin
+        if (window.imageManager && window.imageManager.annotationCache) {
+            const cacheKey = `annotations_${this.currentImage?.id}`;
+            window.imageManager.annotationCache.delete(cacheKey);
+            // 🆕 Zorla tüm cache'i temizle
+            window.imageManager.annotationCache.clear();
+            console.log('🗑️ Cache temizlendi (zorla):', cacheKey);
+        }
+        
+        // UI'yi hemen güncelle
+        this.updateAnnotationList();
+        this.redraw();
+        this.showToast('Etiket silindi', 'success');
+        
+        // 🆕 Dashboard'a bildirim gönder
+        this.notifyDashboardAnnotationDeleted(annotationToDelete);
+        
+        // 🆕 Silme işlemi tamamlandı, korumayı kaldır
+        this.deletingAnnotations.delete(id);
+        
+        // Database'den sil (arka planda, async olarak)
+        if (annotationToDelete && annotationToDelete.dbId && window.labelingAuth) {
+            console.log('🗑️ Database\'den siliniyor (arka planda), dbId:', annotationToDelete.dbId);
+            
+            // Async olarak backend'e gönder (UI'yi bloklamaz)
+            this.deleteFromBackend(annotationToDelete.dbId);
+        }
+        
+        console.log('📊 Silme sonrası annotations sayısı:', this.annotations.length);
         
         // Çoklu fotoğraf modunda ImageManager üzerinden kaydet
         if (this.isMultiImageMode && window.imageManager) {
             this.saveCurrentImageAnnotations();
+        } else {
+            // Tek fotoğraf modunda projeyi kaydet
+            this.saveProject();
         }
-        // Tek fotoğraf modunda database'e kaydetme - etiket zaten silindi
         
         // Çoklu fotoğraf modunda imageAnnotations'dan da sil
         if (this.isMultiImageMode && this.imageAnnotations) {
@@ -7420,6 +7317,125 @@ class LabelingTool {
         console.log('🔄 Canvas yeniden çiziliyor...');
         this.redraw();
         console.log('✅ Canvas yeniden çizildi');
+    }
+
+    // Backend'den etiket silme (arka planda)
+    async deleteFromBackend(dbId) {
+        try {
+            const response = await window.labelingAuth.authenticatedRequest(
+                `${window.labelingAuth.baseURL}/annotations/${dbId}`,
+                { method: 'DELETE' }
+            );
+            
+            if (response.ok) {
+                console.log('✅ Etiket backend\'den silindi:', dbId);
+            } else {
+                console.error('❌ Backend\'den etiket silinirken hata:', response.statusText);
+                // Hata durumunda kullanıcıya bildir (ama UI'yi bozma)
+                this.showToast('Backend\'den etiket silinemedi, sayfa yenilendiğinde tekrar görünebilir', 'warning');
+            }
+        } catch (error) {
+            console.error('❌ Backend silme hatası:', error);
+            // Hata durumunda kullanıcıya bildir (ama UI'yi bozma)
+            this.showToast('Backend bağlantı hatası, sayfa yenilendiğinde tekrar görünebilir', 'warning');
+        }
+    }
+
+    // Dashboard'a annotation silindi bildirimi gönder
+    notifyDashboardAnnotationDeleted(annotation) {
+        try {
+            if (window.realtimeManager && window.realtimeManager.socket) {
+                const notification = {
+                    type: 'annotationDeleted',
+                    annotation: {
+                        id: annotation?.id,
+                        label: annotation?.label,
+                        imageId: window.imageManager?.currentImage?.id,
+                        projectId: window.imageManager?.currentProject?.id
+                    },
+                    timestamp: new Date().toISOString()
+                };
+                
+                window.realtimeManager.socket.emit('annotationDeleted', notification);
+                console.log('📡 Dashboard\'a annotation silindi bildirimi gönderildi:', notification);
+            } else {
+                console.log('⚠️ RealtimeManager veya socket bulunamadı, dashboard bildirimi gönderilemedi');
+            }
+        } catch (error) {
+            console.error('❌ Dashboard bildirimi hatası:', error);
+        }
+    }
+
+    // Dashboard'a annotation eklendi bildirimi gönder
+    notifyDashboardAnnotationAdded(annotation) {
+        try {
+            if (window.realtimeManager && window.realtimeManager.socket) {
+                const notification = {
+                    type: 'annotationAdded',
+                    annotation: {
+                        id: annotation?.id,
+                        label: annotation?.label,
+                        imageId: window.imageManager?.currentImage?.id,
+                        projectId: window.imageManager?.currentProject?.id
+                    },
+                    timestamp: new Date().toISOString()
+                };
+                
+                window.realtimeManager.socket.emit('annotationAdded', notification);
+                console.log('📡 Dashboard\'a annotation eklendi bildirimi gönderildi:', notification);
+            } else {
+                console.log('⚠️ RealtimeManager veya socket bulunamadı, dashboard bildirimi gönderilemedi');
+            }
+        } catch (error) {
+            console.error('❌ Dashboard bildirimi hatası:', error);
+        }
+    }
+
+    // Tüm annotation'ları validate et ve points array'ini düzelt
+    validateAllAnnotations() {
+        console.log('🔍 Tüm annotation\'lar validate ediliyor...');
+        console.log('📊 Toplam annotation sayısı:', this.annotations.length);
+        
+        this.annotations.forEach((annotation, index) => {
+            console.log(`🔍 Annotation ${index + 1} kontrol ediliyor:`, {
+                id: annotation.id,
+                label: annotation.label,
+                hasPoints: Array.isArray(annotation.points),
+                pointsLength: annotation.points?.length || 0,
+                x: annotation.x,
+                y: annotation.y,
+                width: annotation.width,
+                height: annotation.height
+            });
+            
+            // Points array kontrolü
+            if (!Array.isArray(annotation.points) || annotation.points.length < 4) {
+                console.log('⚠️ Points array eksik veya yetersiz, oluşturuluyor:', annotation.label);
+                this.createPointsArrayForAnnotation(annotation);
+            } else {
+                console.log('✅ Points array mevcut:', annotation.points.length, 'nokta');
+            }
+        });
+        
+        console.log('✅ Tüm annotation\'lar validate edildi');
+    }
+
+    // Annotation için points array oluştur
+    createPointsArrayForAnnotation(annotation) {
+        const x = annotation.x;
+        const y = annotation.y;
+        const width = annotation.width;
+        const height = annotation.height;
+        
+        // 4 köşe noktası oluştur (saat yönünde)
+        annotation.points = [
+            { x: x, y: y }, // Sol üst
+            { x: x + width, y: y }, // Sağ üst
+            { x: x + width, y: y + height }, // Sağ alt
+            { x: x, y: y + height } // Sol alt
+        ];
+        
+        console.log('✅ Points array oluşturuldu:', annotation.points);
     }
 
     // ID ile annotation seç
@@ -7527,8 +7543,9 @@ class LabelingTool {
                 return formatted;
             });
 
-            const response = await window.labelingAuth.authenticatedRequest(`${this.getServerURL()}/images/${imageId}/annotations`, {
+            const response = await fetch(`http://${window.location.hostname}:3000/api/images/${imageId}/annotations`, {
                 method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ annotations: formattedAnnotations })
             });
 
@@ -7865,7 +7882,7 @@ class LabelingTool {
                 // Mevcut projeleri kontrol et
                 console.log('🔍 Mevcut projeler kontrol ediliyor...');
                 try {
-                    const projectsResponse = await imageManager.auth.authenticatedRequest(`${imageManager.baseURL}/projects`);
+                    const projectsResponse = await imageManager.auth.makeRequest(`${imageManager.baseURL}/projects`);
                     if (projectsResponse.ok) {
                         const projects = await projectsResponse.json();
                         console.log('📁 Mevcut projeler:', projects);
@@ -7900,7 +7917,7 @@ class LabelingTool {
 
             // Proje verilerini al
             const projectId = imageManager.currentProject.id;
-            const response = await imageManager.auth.authenticatedRequest(
+            const response = await imageManager.auth.makeRequest(
                 `${imageManager.baseURL}/projects/${projectId}/export-data`
             );
 
@@ -7927,7 +7944,7 @@ class LabelingTool {
                 if (imageAnnotations.length === 0) continue;
                 
                 // Resim dosyasını al
-                const imageResponse = await imageManager.auth.authenticatedRequest(
+                const imageResponse = await imageManager.auth.makeRequest(
                     `${imageManager.baseURL}/images/${image.id}/file`
                 );
                 
@@ -8114,220 +8131,6 @@ class LabelingTool {
         }
     }
 
-    // YOLO Export - Manuel implementasyon
-    async yoloExportManual() {
-        try {
-            console.log('🚀 YOLO Export (Manuel) başlatılıyor...');
-            
-            // ImageManager kontrolü
-            let imageManager = this.imageManager || window.labelingTool?.imageManager;
-            
-            if (!imageManager) {
-                console.error('❌ ImageManager bulunamadı');
-                this.showError('ImageManager bulunamadı! Lütfen önce bir proje seçin.');
-                return;
-            }
-            
-            if (!imageManager.auth) {
-                console.error('❌ ImageManager.auth bulunamadı');
-                console.log('🔍 window.labelingAuth:', window.labelingAuth);
-                console.log('🔍 window.labelingTool:', window.labelingTool);
-                console.log('🔍 window.labelingTool?.auth:', window.labelingTool?.auth);
-                
-                // window.labelingTool.auth'u kullanmayı dene
-                if (window.labelingTool?.auth) {
-                    console.log('🔄 window.labelingTool.auth kullanılıyor');
-                    imageManager.auth = window.labelingTool.auth;
-                } else if (window.labelingAuth) {
-                    console.log('🔄 window.labelingAuth kullanılıyor');
-                    imageManager.auth = window.labelingAuth;
-                } else {
-                    console.error('❌ Hiçbir auth objesi bulunamadı');
-                    this.showError('Auth objesi bulunamadı! Lütfen sayfayı yenileyin.');
-                    return;
-                }
-            }
-
-            if (!imageManager.currentProject) {
-                console.error('❌ Aktif proje bulunamadı');
-                console.error('❌ imageManager detayları:', {
-                    currentProject: imageManager.currentProject,
-                    totalImages: imageManager.totalImages,
-                    currentImageIndex: imageManager.currentImageIndex
-                });
-                
-                // Mevcut projeleri kontrol et
-                console.log('🔍 Mevcut projeler kontrol ediliyor...');
-                try {
-                    const projectsResponse = await imageManager.auth.authenticatedRequest(`${imageManager.baseURL}/projects`);
-                    if (projectsResponse.ok) {
-                        const projects = await projectsResponse.json();
-                        console.log('📁 Mevcut projeler:', projects);
-                        
-                        if (projects.length > 0) {
-                            console.log('📁 İlk proje seçiliyor:', projects[0]);
-                            await imageManager.setProject(projects[0].id);
-                            
-                            // Tekrar kontrol et
-                            if (imageManager.currentProject) {
-                                console.log('✅ Proje başarıyla seçildi:', imageManager.currentProject);
-                            } else {
-                                this.showError('Proje seçilemedi! Lütfen manuel olarak bir proje seçin.');
-                                return;
-                            }
-                        } else {
-                            this.showError('Hiç proje bulunamadı! Lütfen önce bir proje oluşturun.');
-                            return;
-                        }
-                    } else {
-                        this.showError('Projeler alınamadı! Lütfen sayfayı yenileyin.');
-                        return;
-                    }
-                } catch (error) {
-                    console.error('❌ Proje kontrol hatası:', error);
-                    this.showError('Proje kontrol edilemedi! Lütfen sayfayı yenileyin.');
-                    return;
-                }
-            }
-
-            console.log('✅ ImageManager ve proje kontrolü başarılı');
-            console.log('📁 Proje:', imageManager.currentProject);
-
-            this.showInfo('YOLO formatında dataset hazırlanıyor...');
-
-            // Proje verilerini al
-            const projectId = imageManager.currentProject.id;
-            console.log('📊 Proje verileri alınıyor, Project ID:', projectId);
-
-            // Tek API çağrısı ile tüm proje verilerini al
-            const response = await imageManager.auth.authenticatedRequest(
-                `${imageManager.baseURL}/projects/${projectId}/export-data`
-            );
-
-            if (!response.ok) {
-                console.error('❌ Export endpoint hatası:', response.status);
-                this.showError('Proje verileri alınamadı!');
-                return;
-            }
-
-            const projectData = await response.json();
-            const { images, annotations } = projectData;
-            
-            console.log('📊 Alınan resim sayısı:', images.length);
-            console.log('📊 Toplam annotation sayısı:', Object.values(annotations).flat().length);
-
-            if (images.length === 0) {
-                this.showWarning('Projede hiç resim bulunamadı!');
-                return;
-            }
-
-            // ZIP dosyası oluştur
-            const zip = new JSZip();
-            const projectName = imageManager.currentProject.name || 'dataset';
-            const datasetFolder = zip.folder(projectName);
-            
-            // YOLO klasör yapısını oluştur
-            const imagesFolder = datasetFolder.folder('images');
-            const labelsFolder = datasetFolder.folder('labels');
-            const trainImagesFolder = imagesFolder.folder('train');
-            const valImagesFolder = imagesFolder.folder('val');
-            const trainLabelsFolder = labelsFolder.folder('train');
-            const valLabelsFolder = labelsFolder.folder('val');
-            
-            // Train/Val split hesapla (80/20)
-            const shuffledImages = this.shuffleArray([...images]);
-            const trainCount = Math.floor(shuffledImages.length * 0.8);
-            const trainImages = shuffledImages.slice(0, trainCount);
-            const valImages = shuffledImages.slice(trainCount);
-            
-            console.log(`📊 Train/Val split: ${trainImages.length}/${valImages.length}`);
-            
-            // Sınıf mapping'i oluştur
-            const allLabels = new Set();
-            Object.values(annotations).flat().forEach(annotation => {
-                allLabels.add(annotation.label);
-            });
-            const classMapping = {};
-            Array.from(allLabels).forEach((label, index) => {
-                classMapping[label] = index;
-            });
-            
-            console.log('📊 Sınıf mapping:', classMapping);
-            
-            // Train set'i işle
-            for (const image of trainImages) {
-                await this.addImageToYOLO(trainImagesFolder, trainLabelsFolder, image, annotations[image.id] || [], classMapping);
-            }
-            
-            // Val set'i işle
-            for (const image of valImages) {
-                await this.addImageToYOLO(valImagesFolder, valLabelsFolder, image, annotations[image.id] || [], classMapping);
-            }
-            
-            // classes.txt dosyası oluştur
-            const classesContent = Array.from(allLabels).join('\n');
-            datasetFolder.file('classes.txt', classesContent);
-            
-            // data.yaml dosyası oluştur
-            const yamlContent = this.createYOLOYaml(classMapping);
-            datasetFolder.file('data.yaml', yamlContent);
-            
-            // ZIP'i blob olarak oluştur
-            const content = await zip.generateAsync({type: "blob"});
-            
-            // Dosya adını oluştur
-            const fileName = `${projectName}_yolo_dataset.zip`;
-            
-            // Otomatik indirme kullan (showSaveFilePicker user activation gerektirir)
-            console.log('💾 YOLO dataset oluşturuldu, otomatik indirme başlatılıyor:', fileName);
-            this.fallbackDownload(content, fileName);
-            
-            this.showInfo(`YOLO dataset indirildi!\nToplam: ${images.length} resim\nTrain: ${trainImages.length} resim\nVal: ${valImages.length} resim\nSınıf sayısı: ${allLabels.size}`);
-            
-        } catch (error) {
-            console.error('❌ YOLO Export hatası:', error);
-            this.showError('YOLO export sırasında hata oluştu: ' + error.message);
-        } finally {
-            // Export flag'ini temizle
-            this.isExporting = false;
-            
-            // Orijinal loadImage fonksiyonunu geri yükle
-            if (window.imageManager && typeof originalLoadImage !== 'undefined') {
-                window.imageManager.loadImage = originalLoadImage;
-            }
-            
-            // Orijinal selectWeatherFilter fonksiyonunu geri yükle
-            if (typeof originalSelectWeatherFilter !== 'undefined') {
-                this.selectWeatherFilter = originalSelectWeatherFilter;
-            }
-            
-            // Orijinal loadWeatherFilter fonksiyonunu geri yükle
-            if (typeof originalLoadWeatherFilter !== 'undefined') {
-                this.loadWeatherFilter = originalLoadWeatherFilter;
-            }
-            
-            // Orijinal updateWeatherFilterUI fonksiyonunu geri yükle
-            if (typeof originalUpdateWeatherFilterUI !== 'undefined') {
-                this.updateWeatherFilterUI = originalUpdateWeatherFilterUI;
-            }
-            
-            // Orijinal redraw fonksiyonunu geri yükle
-            if (typeof originalRedraw !== 'undefined') {
-                this.redraw = originalRedraw;
-            }
-            
-            // Export tamamlandıktan sonra sayfayı yeniden başlat
-            console.log('🔄 Export tamamlandı, sayfa yeniden başlatılıyor...');
-            
-            // DEBUG: Sayfa yenileme geçici olarak devre dışı
-            console.log('🔍 DEBUG: Sayfa yenileme devre dışı, filtreleri kontrol et');
-            // setTimeout(() => {
-            //     console.log('🔄 Sayfa yenileniyor...');
-            //     window.location.reload();
-            // }, 3000);
-        }
-    }
-
     // Yardımcı fonksiyonlar
     shuffleArray(array) {
         const shuffled = [...array];
@@ -8352,7 +8155,7 @@ class LabelingTool {
         // Önce weather filter'ı kontrol et
         let imageBlob;
         try {
-            const filterResponse = await imageManager.auth.authenticatedRequest(
+            const filterResponse = await imageManager.auth.makeRequest(
                 `${imageManager.baseURL}/images/${image.id}/weather-filter`
             );
             
@@ -8369,7 +8172,7 @@ class LabelingTool {
                 } else {
                     // Orijinal resmi al (null, "null" veya boş değerler için)
                     console.log(`📷 Orijinal resim export ediliyor: ${image.fileName} (filter: ${filterData.weatherFilter?.filter_data?.type || 'none'})`);
-        const imageResponse = await imageManager.auth.authenticatedRequest(
+        const imageResponse = await imageManager.auth.makeRequest(
             `${imageManager.baseURL}/images/${image.id}/file`
         );
         if (imageResponse.ok) {
@@ -8378,7 +8181,7 @@ class LabelingTool {
                 }
             } else {
                 // Orijinal resmi al
-                const imageResponse = await imageManager.auth.authenticatedRequest(
+                const imageResponse = await imageManager.auth.makeRequest(
                     `${imageManager.baseURL}/images/${image.id}/file`
                 );
                 if (imageResponse.ok) {
@@ -8388,7 +8191,7 @@ class LabelingTool {
         } catch (error) {
             console.log('⚠️ Weather filter kontrolü başarısız, orijinal resim kullanılıyor:', error);
             // Hata durumunda orijinal resmi al
-            const imageResponse = await imageManager.auth.authenticatedRequest(
+            const imageResponse = await imageManager.auth.makeRequest(
                 `${imageManager.baseURL}/images/${image.id}/file`
             );
             if (imageResponse.ok) {
@@ -8412,7 +8215,7 @@ class LabelingTool {
             
             // Orijinal resmi al
             const imageManager = this.imageManager || window.labelingTool?.imageManager;
-            const imageResponse = await imageManager.auth.authenticatedRequest(
+            const imageResponse = await imageManager.auth.makeRequest(
                 `${imageManager.baseURL}/images/${image.id}/file`
             );
             
@@ -9111,6 +8914,9 @@ names: [${classes.map(c => `'${c}'`).join(', ')}]`;
             return;
         }
 
+        // Önce güncel favori etiketleri yükle
+        await this.loadFavoriteLabels();
+
         // Aynı isimde favori var mı kontrol et
         if (this.favoriteLabels.includes(labelName)) {
             this.showInfo('Bu etiket zaten favorilerde!');
@@ -9118,13 +8924,13 @@ names: [${classes.map(c => `'${c}'`).join(', ')}]`;
         }
 
         try {
-            const projectId = window.labelingAuth?.currentProject?.id;
+            const projectId = window.imageManager?.currentProject?.id || window.imageManager?.currentProject;
             if (!projectId) {
                 this.showError('Proje bilgisi bulunamadı!');
                 return;
             }
 
-            const response = await fetch(`${this.getServerURL()}/projects/${projectId}/favorite-labels`, {
+            const response = await fetch(`http://${window.location.hostname}:3000/api/projects/${projectId}/favorite-labels`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -9133,10 +8939,14 @@ names: [${classes.map(c => `'${c}'`).join(', ')}]`;
             });
 
             if (response.ok) {
-        this.favoriteLabels.push(labelName);
-        this.updateFavoriteLabelsList();
-        input.value = '';
-        this.showInfo(`"${labelName}" favorilere eklendi!`);
+                this.favoriteLabels.push(labelName);
+                this.updateFavoriteLabelsList();
+                input.value = '';
+                this.showInfo(`"${labelName}" favorilere eklendi!`);
+            } else if (response.status === 409) {
+                // Duplicate favorite - zaten favorilerde
+                const error = await response.json();
+                this.showInfo(error.error || 'Bu etiket zaten favorilerde!');
             } else {
                 const error = await response.json();
                 this.showError(error.error || 'Favori etiket eklenemedi!');
@@ -9149,13 +8959,13 @@ names: [${classes.map(c => `'${c}'`).join(', ')}]`;
 
     async removeFavoriteLabel(labelName) {
         try {
-            const projectId = window.labelingAuth?.currentProject?.id;
+            const projectId = window.imageManager?.currentProject?.id || window.imageManager?.currentProject;
             if (!projectId) {
                 this.showError('Proje bilgisi bulunamadı!');
                 return;
             }
 
-            const response = await fetch(`${this.getServerURL()}/projects/${projectId}/favorite-labels/${encodeURIComponent(labelName)}`, {
+            const response = await fetch(`http://${window.location.hostname}:3000/api/projects/${projectId}/favorite-labels/${encodeURIComponent(labelName)}`, {
                 method: 'DELETE',
                 headers: {
                     'Content-Type': 'application/json'
@@ -9266,7 +9076,7 @@ names: [${classes.map(c => `'${c}'`).join(', ')}]`;
 
     async loadFavoriteLabels() {
         try {
-            const projectId = window.labelingAuth?.currentProject?.id;
+            const projectId = window.imageManager?.currentProject?.id || window.imageManager?.currentProject;
             if (!projectId) {
                 console.log('ℹ️ Proje ID bulunamadı, favori etiketler yüklenmiyor');
                 this.favoriteLabels = [];
@@ -9275,12 +9085,14 @@ names: [${classes.map(c => `'${c}'`).join(', ')}]`;
                 return;
             }
 
-            const response = await fetch(`${this.getServerURL()}/projects/${projectId}/favorite-labels`);
+            const response = await fetch(`http://${window.location.hostname}:3000/api/projects/${projectId}/favorite-labels`);
             
             if (response.ok) {
                 const result = await response.json();
-                // Backend'ten gelen object array'ini string array'ine çevir
-                this.favoriteLabels = (result.favoriteLabels || []).map(item => item.label_name || item);
+                // Backend'den gelen obje array'ini string array'e çevir
+                this.favoriteLabels = (result.favoriteLabels || []).map(item => 
+                    typeof item === 'string' ? item : item.label_name
+                );
                 console.log('✅ Favori etiketler yüklendi:', this.favoriteLabels);
                 this.updateFavoriteLabelsList();
                 this.updateFavoriteLabelsDisplay();
@@ -9403,45 +9215,9 @@ names: [${classes.map(c => `'${c}'`).join(', ')}]`;
 
 
 
-// Dashboard'a geri dönüş fonksiyonu
-function backToDashboard() {
-    console.log('🏠 Dashboard\'a dönülüyor...');
-    
-    try {
-        // Electron API'si ile dashboard'a geç
-        if (window.electronAPI && window.electronAPI.openDashboard) {
-            window.electronAPI.openDashboard().then(result => {
-                if (result.success) {
-                    console.log('✅ Dashboard\'a geçildi');
-                } else {
-                    console.error('❌ Dashboard\'a geçiş hatası:', result.error);
-                    // Fallback: Sayfa yönlendirme
-                    window.location.href = '../dashboard/index.html';
-                }
-            });
-        } else {
-            // Fallback: Sayfa yönlendirme
-            window.location.href = '../dashboard/index.html';
-        }
-    } catch (error) {
-        console.error('❌ Dashboard\'a dönüş hatası:', error);
-        // Fallback: Sayfa yönlendirme
-        window.location.href = '../dashboard/index.html';
-    }
-}
-
 // Uygulamayı başlat - DOM yüklendikten sonra
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM yüklendi, LabelingTool başlatılıyor...');
-    
-    // Dashboard'a geri dönüş butonu event listener'ı
-    const backToDashboardBtn = document.getElementById('backToDashboardBtn');
-    if (backToDashboardBtn) {
-        backToDashboardBtn.addEventListener('click', backToDashboard);
-        console.log('✅ Dashboard geri dönüş butonu event listener eklendi');
-    } else {
-        console.warn('⚠️ Dashboard geri dönüş butonu bulunamadı');
-    }
     
     // Modal elementlerini kontrol et
     console.log('🔍 Modal elementleri kontrol ediliyor...');
@@ -9463,18 +9239,14 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Eğer DOM zaten yüklendiyse hemen başlat
-if (document.readyState !== 'loading') {
+if (document.readyState === 'loading') {
+    // DOM henüz yükleniyor, yukarıdaki event listener çalışacak
+} else {
     // DOM zaten yüklendi
     console.log('DOM zaten yüklü, LabelingTool başlatılıyor...');
     
-    // Modal elementlerini kontrol et
-    console.log('🔍 Modal elementleri kontrol ediliyor...');
-    console.log('🔍 labelModal:', document.getElementById('labelModal'));
-    console.log('🔍 favoriteLabelsModal:', document.getElementById('favoriteLabelsModal'));
-    console.log('🔍 Tüm modal elementleri:', document.querySelectorAll('.modal'));
-    
     // Hava durumu filtrelerini kontrol et
-    console.log('🌤️ Hava durumu filtreleri kontrol ediliyor...');
+    console.log('🌤️ Hava durumu filtreleri kontrol ediliyor (DOM zaten yüklü)...');
     const weatherFilters = document.querySelectorAll('input[data-filter]');
     console.log('🌤️ Bulunan hava durumu filtreleri:', weatherFilters.length);
     weatherFilters.forEach((filter, index) => {

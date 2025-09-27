@@ -135,7 +135,7 @@ class AnnotationManager {
         console.log('🔍 AnnotationManager.getHandleAt çağrıldı:', { pos });
         
         // Hem selectedAnnotation hem de focusedAnnotation kontrol et
-        const annotation = this.labelingTool.selectedAnnotation || this.labelingTool.focusedAnnotation;
+        const annotation = this.labelingTool.focusedAnnotation || this.labelingTool.selectedAnnotation;
         console.log('🔍 Annotation bulundu:', annotation?.id, annotation?.type);
         if (!annotation) {
             console.log('❌ Annotation bulunamadı');
@@ -148,10 +148,13 @@ class AnnotationManager {
         const handleSize = 8;
         const tolerance = handleSize / 2; // Yarı boyut tolerans
 
-        if (annotation.type === 'rectangle') {
-            // Rectangle'ı polygon'a dönüştür (eğer henüz dönüştürülmemişse)
+        // Points array kontrolü - eğer yoksa oluştur
+        if (!Array.isArray(annotation.points) || annotation.points.length < 4) {
+            console.log('🔧 Points array eksik, oluşturuluyor:', annotation.label);
             this.convertRectangleToPolygon(annotation);
-            
+        }
+        
+        if (annotation.type === 'rectangle' || annotation.type === 'polygon') {
             // Polygon noktalarını canvas koordinatlarına çevir
             const canvasPoints = annotation.points.map(point => 
                 this.labelingTool.imageToCanvas(point.x, point.y)
@@ -378,9 +381,12 @@ class AnnotationManager {
 
     // Rectangle'ı polygon'a dönüştür
     convertRectangleToPolygon(annotation) {
-        if (Array.isArray(annotation.points) && annotation.points.length > 0) {
+        if (Array.isArray(annotation.points) && annotation.points.length >= 4) {
+            console.log('✅ Annotation zaten polygon formatında:', annotation.label);
             return; // Zaten dönüştürülmüş
         }
+        
+        console.log('🔧 Rectangle polygon\'a dönüştürülüyor:', annotation.label);
         
         const x = annotation.x;
         const y = annotation.y;
@@ -395,8 +401,12 @@ class AnnotationManager {
             { x: x, y: y + height } // Sol alt
         ];
         
+        console.log('✅ Points array oluşturuldu:', annotation.points);
+        
         // Annotation type'ını polygon'a çevir
         annotation.type = 'polygon';
+        
+        console.log('✅ Annotation type polygon\'a çevrildi:', annotation.type);
         
         // Database'e kaydet
         if (this.labelingTool && this.labelingTool.saveAllAnnotationsToDatabase) {

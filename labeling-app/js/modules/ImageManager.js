@@ -13,6 +13,7 @@ class ImageManager {
         this.annotationCache = new Map();
         this.imageCache = new Map();
         this.lastLoadTime = 0;
+        this.labelingToolRetryCount = 0; // Retry counter for LabelingTool
         
         // Server IP'ini test et ve güncelle
         this.testAndSaveServerIP();
@@ -22,7 +23,7 @@ class ImageManager {
     getServerURL() {
         // Önce localStorage'dan kontrol et
         const savedIP = localStorage.getItem('serverIP');
-        if (savedIP) {
+        if (savedIP && savedIP !== '192.168.1.100') {
             console.log(`🔧 Kaydedilmiş IP kullanılıyor: ${savedIP}`);
             return `http://${savedIP}:3000/api`;
         }
@@ -30,11 +31,10 @@ class ImageManager {
         // window.location.hostname kullan
         const hostname = window.location.hostname;
         
-        // Eğer localhost ise, bilinen IP adresini kullan
+        // Eğer localhost ise, localhost kullan
         if (hostname === 'localhost' || hostname === '127.0.0.1') {
-            console.log('🔧 localhost tespit edildi, IP adresi kullanılacak');
-            // Bilinen IP adresini kullan (bulduğumuz IP)
-            return `http://10.10.1.22:3000/api`;
+            console.log('🔧 localhost tespit edildi, localhost kullanılacak');
+            return `http://localhost:3000/api`;
         }
         
         // Diğer durumlarda window.location.hostname kullan
@@ -44,31 +44,50 @@ class ImageManager {
 
     // Server IP'ini test et ve kaydet
     async testAndSaveServerIP() {
-        const testIPs = ['10.10.1.22', '192.168.1.100', '192.168.0.100', window.location.hostname];
-        
-        for (const ip of testIPs) {
+        // Önce localStorage'dan kaydedilmiş IP'yi kontrol et
+        const savedIP = localStorage.getItem('serverIP');
+        if (savedIP) {
+            console.log(`🔍 Kaydedilmiş IP test ediliyor: ${savedIP}`);
             try {
-                const testURL = `http://${ip}:3000/api/projects`;
-                console.log(`🔍 IP test ediliyor: ${ip}`);
-                
+                const testURL = `http://${savedIP}:3000/api/health`;
                 const response = await fetch(testURL, { 
                     method: 'GET',
-                    signal: AbortSignal.timeout(3000)
+                    signal: AbortSignal.timeout(2000)
                 });
                 
                 if (response.ok) {
-                    console.log(`✅ Server IP bulundu: ${ip}`);
-                    localStorage.setItem('serverIP', ip);
-                    this.baseURL = `http://${ip}:3000/api`;
-                    return ip;
+                    console.log(`✅ Kaydedilmiş IP çalışıyor: ${savedIP}`);
+                    this.baseURL = `http://${savedIP}:3000/api`;
+                    return savedIP;
                 }
             } catch (error) {
-                console.log(`❌ IP test edilemedi: ${ip}`, error.message);
+                console.log(`❌ Kaydedilmiş IP çalışmıyor: ${savedIP}`, error.message);
+                localStorage.removeItem('serverIP');
             }
         }
         
-        console.warn('⚠️ Hiçbir IP adresi çalışmıyor, varsayılan kullanılıyor');
-        return window.location.hostname;
+        // Localhost'u test et
+        try {
+            const localhostURL = `http://localhost:3000/api/health`;
+            console.log(`🔍 Localhost test ediliyor`);
+            const response = await fetch(localhostURL, { 
+                method: 'GET',
+                signal: AbortSignal.timeout(2000)
+            });
+            
+            if (response.ok) {
+                console.log(`✅ Localhost çalışıyor`);
+                localStorage.setItem('serverIP', 'localhost');
+                this.baseURL = `http://localhost:3000/api`;
+                return 'localhost';
+            }
+        } catch (error) {
+            console.log(`❌ Localhost çalışmıyor`, error.message);
+        }
+        
+        console.warn('⚠️ Hiçbir IP adresi çalışmıyor, localhost kullanılıyor');
+        this.baseURL = `http://localhost:3000/api`;
+        return 'localhost';
     }
 
     // Proje seçildiğinde çağrılır
@@ -243,6 +262,24 @@ class ImageManager {
                 if (window.labelingTool && window.labelingTool.saveOriginalImageData) {
                     window.labelingTool.saveOriginalImageData();
                 }
+                
+                // Cache'i temizle (yeni fotoğraf için)
+                this.clearCurrentImageAnnotationCache();
+                console.log('🧹 Yeni fotoğraf için cache temizlendi');
+                
+                // Etiketleri yükle (yeni fotoğraf için)
+                setTimeout(() => {
+                    console.log('🏷️ Etiketler yükleniyor (yeni fotoğraf)');
+                    this.loadImageAnnotations();
+                }, 100); // 100ms bekle
+                
+                // Weather filter'ı yükle (her fotoğraf için kendi filter'ı)
+                setTimeout(() => {
+                    if (window.labelingTool && window.labelingTool.loadWeatherFilter) {
+                        console.log('🌤️ Weather filter yükleniyor (yeni fotoğraf)');
+                        window.labelingTool.loadWeatherFilter();
+                    }
+                }, 100); // 100ms bekle ki annotations yüklensin
             } else {
                 console.error('❌ Fotoğraf yüklenemedi');
             }
@@ -591,85 +628,7 @@ class ImageManager {
         console.log(`✅ Fotoğraf büyük boyutlu çizildi: ${drawWidth.toFixed(0)}x${drawHeight.toFixed(0)} @ (${offsetX.toFixed(1)}, ${offsetY.toFixed(1)})`);
     }
 
-    // Fotoğrafa ait etiketleri yükle
-    async loadImageAnnotations() {
-        if (!this.currentImage) return;
-        
-        try {
-            console.log('🏷️ Fotoğraf etiketleri yükleniyor...', {
-                imageId: this.currentImage.id,
-                fileName: this.currentImage.file_name
-            });
-            
-            const response = await this.auth.authenticatedRequest(
-                `${this.baseURL}/images/${this.currentImage.id}/annotations`
-            );
-            
-            if (response.ok) {
-                const annotations = await response.json();
-                console.log('🏷️ Yüklenen etiketler:', annotations.length + ' adet');
-                
-                // Script.js'deki etiketleri güncelle
-                if (window.labelingTool) {
-                    // Mevcut etiketleri temizle
-                    window.labelingTool.annotations = [];
-                    window.labelingTool.selectedAnnotation = null;
-                    window.labelingTool.focusedAnnotation = null;
-                    
-                    // Yeni etiketleri ekle
-                    annotations.forEach(annotation => {
-                        if (annotation.annotation_data) {
-                            try {
-                                const annotationData = typeof annotation.annotation_data === 'string' 
-                                    ? JSON.parse(annotation.annotation_data) 
-                                    : annotation.annotation_data;
-                                
-                                window.labelingTool.annotations.push({
-                                    ...annotationData,
-                                    id: annotation.id
-                                });
-                            } catch (e) {
-                                console.error('❌ Etiket verisi parse edilemedi:', annotation.annotation_data);
-                            }
-                        }
-                    });
-                    
-                    // Etiket listelerini güncelle
-                    window.labelingTool.updateAnnotationList();
-                    window.labelingTool.updateLabelListFromAnnotations();
-                    
-                    // Canvas'ı yeniden çiz
-                    window.labelingTool.redraw();
-                    console.log('✅ Etiketler güncellendi:', window.labelingTool.annotations.length + ' etiket yüklendi');
-                }
-            } else {
-                console.log('ℹ️ Bu fotoğraf için etiket bulunamadı');
-                
-                // Script.js'deki etiketleri temizle
-                if (window.labelingTool) {
-                    window.labelingTool.annotations = [];
-                    window.labelingTool.selectedAnnotation = null;
-                    window.labelingTool.focusedAnnotation = null;
-                    window.labelingTool.updateAnnotationList();
-                    window.labelingTool.updateLabelListFromAnnotations();
-                    window.labelingTool.redraw();
-                    console.log('✅ Boş fotoğraf için etiketler temizlendi');
-                }
-            }
-        } catch (error) {
-            console.error('❌ Etiketler yüklenirken hata:', error);
-            
-            // Hata durumunda da etiketleri temizle
-            if (window.labelingTool) {
-                window.labelingTool.annotations = [];
-                window.labelingTool.selectedAnnotation = null;
-                window.labelingTool.focusedAnnotation = null;
-                window.labelingTool.updateAnnotationList();
-                window.labelingTool.updateLabelListFromAnnotations();
-                window.labelingTool.redraw();
-            }
-        }
-    }
+    // Eski loadImageAnnotations fonksiyonu kaldırıldı - optimized versiyon kullanılıyor
 
 
     // Klasör tarama
@@ -939,13 +898,13 @@ class ImageManager {
             return;
         }
 
-        // Rate limiting - Son yüklemeden en az 500ms geçmiş olmalı (daha uzun süre)
+        // Rate limiting - Son yüklemeden en az 1000ms geçmiş olmalı (daha uzun süre)
         const now = Date.now();
-        if (now - this.lastLoadTime < 500) {
-            console.log('⏳ Rate limiting - çok sık yükleme engellendi, 500ms bekle');
+        if (now - this.lastLoadTime < 1000) {
+            console.log('⏳ Rate limiting - çok sık yükleme engellendi, 1000ms bekle');
             setTimeout(() => {
                 this.loadImageAnnotations();
-            }, 500);
+            }, 1000);
             return;
         }
         this.lastLoadTime = now;
@@ -955,8 +914,13 @@ class ImageManager {
         const cached = this.annotationCache.get(cacheKey);
         
         if (cached && Date.now() - cached.timestamp < 30000) { // 30 saniye cache
-            console.log('💾 Cache\'den etiketler yüklendi');
+            console.log('💾 Cache\'den etiketler yüklendi:', cached.data.length, 'adet');
             this.applyAnnotations(cached.data);
+            
+            // Debug paneli güncelle
+            if (window.debugPanel) {
+                window.debugPanel.updateAnnotationStatus(cached.data.length, new Date().toLocaleTimeString());
+            }
             return;
         }
 
@@ -966,8 +930,8 @@ class ImageManager {
             // Performance timing
             const startTime = performance.now();
             
-            // API çağrısı - Authentication düzeltildi
-            const response = await fetch(`${this.baseURL}/images/${this.currentImage.id}/annotations`);
+            // API çağrısı - Authentication ile
+            const response = await this.auth.authenticatedRequest(`${this.baseURL}/images/${this.currentImage.id}/annotations`);
             
             if (!response.ok) {
                 if (response.status === 404) {
@@ -1001,6 +965,11 @@ class ImageManager {
             // Apply annotations
             this.applyAnnotations(parsedAnnotations);
             
+            // Debug paneli güncelle
+            if (window.debugPanel) {
+                window.debugPanel.updateAnnotationStatus(parsedAnnotations.length, new Date().toLocaleTimeString());
+            }
+            
         } catch (error) {
             console.error('❌ Etiket yükleme hatası:', error);
             this.showError('Etiketler yüklenirken hata oluştu');
@@ -1009,60 +978,140 @@ class ImageManager {
     }
 
     parseAnnotations(annotations) {
+        console.log('🔍 parseAnnotations çağrıldı:', {
+            annotationsLength: annotations?.length || 0,
+            annotations: annotations
+        });
+        
+        // Backend'den artık direkt formatlanmış array geliyor
+        if (!Array.isArray(annotations)) {
+            console.warn('⚠️ Annotations array değil:', typeof annotations);
+            return [];
+        }
+        
         const parsedAnnotations = [];
         
-        annotations.forEach(dbAnnotation => {
-            try {
-                const annotationData = dbAnnotation.annotation_data;
-                
-                if (annotationData && Array.isArray(annotationData.annotations)) {
-                    annotationData.annotations.forEach(ann => {
-                        if (this.validateAnnotation(ann)) {
-                            ann.dbId = dbAnnotation.id;
-                            parsedAnnotations.push(ann);
-                        }
-                    });
-                }
-            } catch (parseError) {
-                console.warn('Annotation parse error:', parseError);
+        annotations.forEach(annotation => {
+            console.log('🔍 Annotation işleniyor:', annotation);
+            
+            if (this.validateAnnotation(annotation)) {
+                parsedAnnotations.push(annotation);
+                console.log('✅ Annotation eklendi:', annotation.label);
+            } else {
+                console.warn('⚠️ Geçersiz annotation atlandı:', annotation);
             }
         });
         
+        console.log(`✅ ${parsedAnnotations.length} annotation parse edildi`);
         return parsedAnnotations;
     }
     
     validateAnnotation(annotation) {
-        return annotation &&
+        const isValid = annotation &&
+               annotation.label &&
                typeof annotation.x === 'number' &&
                typeof annotation.y === 'number' &&
                typeof annotation.width === 'number' &&
                typeof annotation.height === 'number' &&
                annotation.width > 0 &&
                annotation.height > 0;
+        
+        // Points array kontrolü - eğer yoksa oluştur
+        if (isValid && (!Array.isArray(annotation.points) || annotation.points.length < 4)) {
+            console.log('🔧 Points array eksik veya yetersiz, oluşturuluyor:', annotation.label);
+            this.createPointsArray(annotation);
+        }
+        
+        if (!isValid) {
+            console.warn('⚠️ Geçersiz annotation atlandı:', {
+                hasLabel: !!annotation?.label,
+                x: annotation?.x,
+                y: annotation?.y,
+                width: annotation?.width,
+                height: annotation?.height,
+                hasPoints: Array.isArray(annotation?.points),
+                pointsLength: annotation?.points?.length,
+                annotation: annotation
+            });
+        }
+        
+        return isValid;
+    }
+    
+    // Points array oluştur
+    createPointsArray(annotation) {
+        const x = annotation.x;
+        const y = annotation.y;
+        const width = annotation.width;
+        const height = annotation.height;
+        
+        // 4 köşe noktası oluştur (saat yönünde)
+        annotation.points = [
+            { x: x, y: y }, // Sol üst
+            { x: x + width, y: y }, // Sağ üst
+            { x: x + width, y: y + height }, // Sağ alt
+            { x: x, y: y + height } // Sol alt
+        ];
+        
+        console.log('✅ Points array oluşturuldu:', annotation.points);
     }
     
     applyAnnotations(annotations) {
-        // LabelingTool yüklenmesini bekle
-        if (window.labelingTool) {
-            window.labelingTool.annotations = annotations;
+        console.log('🔄 applyAnnotations çağrıldı:', {
+            annotationsLength: annotations?.length || 0,
+            labelingToolExists: !!window.labelingTool,
+            annotations: annotations
+        });
+        
+        // LabelingTool yüklenmesini bekle - Geliştirilmiş kontrol
+        if (window.labelingTool && typeof window.labelingTool.annotations !== 'undefined') {
+            console.log('✅ LabelingTool mevcut, etiketler yükleniyor...');
+            
+            // Annotations'ı güvenli şekilde ayarla
+            window.labelingTool.annotations = annotations || [];
+            
+            // Annotation'ları validate et ve points array'ini düzelt
+            if (window.labelingTool.validateAllAnnotations) {
+                window.labelingTool.validateAllAnnotations();
+                console.log('🔍 Annotationlar validate edildi');
+            }
+            
+            // UI güncellemeleri
             if (window.labelingTool.updateAnnotationList) {
                 window.labelingTool.updateAnnotationList();
+                console.log('📋 Annotation listesi güncellendi');
             }
+            
+            if (window.labelingTool.updateLabelListFromAnnotations) {
+                window.labelingTool.updateLabelListFromAnnotations();
+                console.log('🏷️ Label listesi güncellendi');
+            }
+            
             if (window.labelingTool.redraw) {
                 window.labelingTool.redraw();
+                console.log('🎨 Canvas yeniden çizildi');
             }
-            console.log(`✅ ${annotations.length} etiket LabelingTool'a yüklendi`);
             
-            // Weather filter'ı yükle
-            if (window.labelingTool && window.labelingTool.loadWeatherFilter) {
-                window.labelingTool.loadWeatherFilter();
-            }
+            console.log(`✅ ${annotations?.length || 0} etiket LabelingTool'a yüklendi`);
         } else {
-            // LabelingTool henüz yüklenmemiş, 500ms bekle
+            // LabelingTool henüz yüklenmemiş, retry mekanizması
             console.log('⏳ LabelingTool bekleniyor...');
-            setTimeout(() => {
-                this.applyAnnotations(annotations);
-            }, 500);
+            
+            // Retry counter'ı initialize et
+            if (typeof this.labelingToolRetryCount === 'undefined') {
+                this.labelingToolRetryCount = 0;
+            }
+            
+            if (this.labelingToolRetryCount < 5) { // Maksimum 5 deneme
+                this.labelingToolRetryCount++;
+                console.log(`🔄 LabelingTool tekrar kontrol ediliyor... (${this.labelingToolRetryCount}/5)`);
+                setTimeout(() => {
+                    this.applyAnnotations(annotations);
+                }, 500); // 500ms bekle
+            } else {
+                console.warn('⚠️ LabelingTool yüklenemedi, etiketler yüklenmedi');
+                this.labelingToolRetryCount = 0; // Reset counter
+            }
         }
     }
     
@@ -1102,6 +1151,47 @@ class ImageManager {
         this.annotationCache.clear();
         this.imageCache.clear();
         console.log('🧹 Cache temizlendi');
+    }
+
+    // Belirli bir fotoğrafın cache'ini temizle
+    clearImageCache(imageId) {
+        const cacheKey = `annotations_${imageId}`;
+        this.annotationCache.delete(cacheKey);
+        console.log(`🧹 Fotoğraf ${imageId} cache'i temizlendi`);
+    }
+
+    // Tüm annotation cache'ini temizle
+    clearAnnotationCache() {
+        this.annotationCache.clear();
+        console.log('🧹 Annotation cache temizlendi');
+    }
+    
+    // Mevcut fotoğrafın annotation cache'ini temizle
+    clearCurrentImageAnnotationCache() {
+        if (this.currentImage && this.currentImage.id) {
+            const cacheKey = `annotations_${this.currentImage.id}`;
+            this.annotationCache.delete(cacheKey);
+            console.log(`🧹 Mevcut fotoğraf cache'i temizlendi: ${cacheKey}`);
+        }
+    }
+    
+    clearAnnotations() {
+        console.log('🧹 Etiketler temizleniyor');
+        if (window.labelingTool) {
+            window.labelingTool.annotations = [];
+            window.labelingTool.selectedAnnotation = null;
+            window.labelingTool.focusedAnnotation = null;
+            if (window.labelingTool.updateAnnotationList) {
+                window.labelingTool.updateAnnotationList();
+            }
+            if (window.labelingTool.updateLabelListFromAnnotations) {
+                window.labelingTool.updateLabelListFromAnnotations();
+            }
+            if (window.labelingTool.redraw) {
+                window.labelingTool.redraw();
+            }
+            console.log('✅ Etiketler temizlendi');
+        }
     }
 }
 

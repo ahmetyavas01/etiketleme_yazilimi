@@ -62,16 +62,40 @@ class StartManager {
     async loadProjects() {
         try {
             console.log('📁 Projeler yükleniyor...');
-            // Önce login yap (admin/admin varsayılan)
+            console.log('🔧 StartManager: Auth instance:', this.auth);
+            console.log('🔧 StartManager: Auth baseURL:', this.auth?.baseURL);
+            
+            // Önce server bağlantısını kontrol et
             try {
+                const healthURL = `${this.auth.baseURL}/health`;
+                console.log(`🔧 StartManager: Health check URL: ${healthURL}`);
+                
+                const healthResponse = await fetch(healthURL);
+                console.log('🔧 Health response status:', healthResponse.status);
+                if (!healthResponse.ok) {
+                    throw new Error('Server bağlantısı yok');
+                }
+                console.log('✅ Server bağlantısı OK');
+            } catch (healthError) {
+                console.error('❌ Server bağlantısı hatası:', healthError.message);
+                this.showError('Server bağlantısı yok! Lütfen server\'ı başlatın.');
+                return;
+            }
+            
+            // Login yap (admin/admin varsayılan)
+            try {
+                console.log('🔐 Login yapılıyor...');
                 await this.auth.login('admin', 'admin');
                 console.log('✅ Login başarılı');
             } catch (loginError) {
-                console.log('⚠️ Login hatası, projeleri token olmadan yüklemeye çalışıyor...');
+                console.log('⚠️ Login hatası, projeleri token olmadan yüklemeye çalışıyor...', loginError.message);
             }
             
+            console.log('📁 getProjects() çağrılıyor...');
             const projects = await this.auth.getProjects();
             console.log('📁 Yüklenen projeler:', projects);
+            console.log('📁 Projeler tipi:', typeof projects);
+            console.log('📁 Projeler uzunluğu:', projects?.length);
             
             // Projeleri sınıf değişkenine kaydet
             this.projects = projects;
@@ -257,11 +281,31 @@ class StartManager {
         }
     }
 
-    // Çıkış yap
+    // Dashboard'a dön
+    goToDashboard() {
+        const confirmDashboard = confirm('Dashboard\'a geçmek istediğinizden emin misiniz?');
+        if (confirmDashboard) {
+            console.log('🏠 Dashboard\'a dönülüyor...');
+            // Dashboard'a yönlendir - Electron uygulamasında doğru path
+            window.location.href = '../dashboard/';
+        } else {
+            console.log('❌ Dashboard\'a dönüş iptal edildi');
+        }
+    }
+
+    // Çıkış yap (eski fonksiyon - artık kullanılmıyor)
     logout() {
-        this.auth.logout();
-        // Auto refresh ile başa sar
-        window.location.reload();
+        // Alert göster
+        const confirmLogout = confirm('Uygulamadan çıkmak istediğinizden emin misiniz?');
+        
+        if (confirmLogout) {
+            console.log('🚪 Kullanıcı çıkış yapıyor...');
+            this.auth.logout();
+            // Auto refresh ile başa sar
+            window.location.reload();
+        } else {
+            console.log('❌ Çıkış iptal edildi');
+        }
     }
 }
 
@@ -285,6 +329,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (logoutBtn) {
         logoutBtn.addEventListener('click', () => {
             window.startManager.handleLogout();
+        });
+    }
+    
+    // Dashboard button event'i
+    const dashboardBtn = document.getElementById('dashboardBtn');
+    if (dashboardBtn) {
+        dashboardBtn.addEventListener('click', () => {
+            window.startManager.goToDashboard();
         });
     }
 });
